@@ -3,8 +3,11 @@
     <q-card>
       <q-card-section class="row items-center">
         <q-icon color="primary" name="mdi-alert-circle" size="md" />
-        <span class="q-ml-sm text-h6">Do you want to delete photo(s) as below?</span>
-        <span class="q-mt-sm">{{ photoKeysString }}</span>
+        <span class="q-ml-sm text-h6">Do you want to delete photo{{getSelectedPhotoList.length > 1 ? 's' :''}} as below?</span>
+      </q-card-section>
+
+      <q-card-section class="q-pt-none">
+        <div class="row" v-for='photoKey in photoKeysArray' :key="photoKey">{{photoKey}}</div>
       </q-card-section>
 
       <q-card-actions align="right">
@@ -45,8 +48,6 @@ const photoKeysArray = computed(
       return photoKeyArray.length > 1 ? photoKeyArray[1] : photoKeyArray[0];
     }) as string[]
 );
-
-const photoKeysString = computed(() => photoKeysArray.value.join(', '));
 
 const isProcessing = ref(false);
 
