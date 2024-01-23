@@ -1,0 +1,65 @@
+name: Build and deploy web app to AWS S3
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "src/**"
+  workflow_dispatch:
+    inputs:
+      buildManually:
+        description: 'Run build manually'
+        required: true
+        default: 'build'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      ALBUM_APP_TITLE: ${{ secrets.ALBUM_APP_TITLE }}
+      STATIC_FILES_URL: ${{ secrets.STATIC_FILES_URL }}
+      IMAGEKIT_CDN_URL: ${{ secrets.IMAGEKIT_CDN_URL }}
+      MAPBOX_API_KEY: ${{ secrets.MAPBOX_API_KEY }}
+      AWS_API_GATEWAY_URL: ${{ secrets.AWS_API_GATEWAY_URL }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Write .env file
+        run: |
+          tee .env <<EOF
+          ALBUM_APP_TITLE=$ALBUM_APP_TITLE
+          STATIC_FILES_URL=$STATIC_FILES_URL
+          IMAGEKIT_CDN_URL=$IMAGEKIT_CDN_URL
+          MAPBOX_API_KEY=$MAPBOX_API_KEY
+          AWS_API_GATEWAY_URL=$AWS_API_GATEWAY_URL
+          GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+          EOF
+
+      - name: Test and build
+        run: |
+          npm run test
+          npm run build
+
+      - name: Upload to S3
+        uses: reggionick/s3-deploy@v4
+        with:
+          folder: dist/spa
+          bucket: ${{ secrets.AWS_S3_BUCKET_FOR_GITHUB_DEPLOY }}
+          dist-id: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+          invalidation: /
+          bucket-region: us-east-1
+          no-cache: true
+          delete-removed: true
