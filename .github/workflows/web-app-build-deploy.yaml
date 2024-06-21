@@ -1,0 +1,94 @@
+name: Build and deploy web app
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "src/**"
+  workflow_dispatch:
+    inputs:
+      buildManually:
+        description: 'Run build manually'
+        required: true
+        default: 'build'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      ALBUM_APP_TITLE: ${{ secrets.ALBUM_APP_TITLE }}
+      STATIC_FILES_URL: ${{ secrets.STATIC_FILES_URL }}
+      IMAGEKIT_CDN_URL: ${{ secrets.IMAGEKIT_CDN_URL }}
+      MAPBOX_API_KEY: ${{ secrets.MAPBOX_API_KEY }}
+      AWS_API_GATEWAY_URL: ${{ secrets.AWS_API_GATEWAY_URL }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Write .env file
+        run: |
+          tee .env <<EOF
+          ALBUM_APP_TITLE=$ALBUM_APP_TITLE
+          STATIC_FILES_URL=$STATIC_FILES_URL
+          IMAGEKIT_CDN_URL=$IMAGEKIT_CDN_URL
+          MAPBOX_API_KEY=$MAPBOX_API_KEY
+          AWS_API_GATEWAY_URL=$AWS_API_GATEWAY_URL
+          GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+          EOF
+
+      - name: Test and build
+        run: |
+          npm run types
+          npm run test
+          npm run build
+
+      - name: Clean up old files
+        uses: keithweaver/aws-s3-github-action@master
+        with:
+          command: rm
+          source: s3://${{ secrets.AWS_S3_BUCKET_FOR_GITHUB_DEPLOY }}/assets/
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
+          aws_region: us-east-1
+          flags: --recursive
+
+      - name: Upload assets to S3
+        uses: keithweaver/aws-s3-github-action@master
+        with:
+          source: dist/spa/assets
+          destination: s3://${{ secrets.AWS_S3_BUCKET_FOR_GITHUB_DEPLOY }}/assets
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
+          aws_region: us-east-1
+          flags: --recursive
+
+      - name: Upload index to S3
+        uses: keithweaver/aws-s3-github-action@master
+        with:
+          source: dist/spa/index.html
+          destination: s3://${{ secrets.AWS_S3_BUCKET_FOR_GITHUB_DEPLOY }}/index.html
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
+          aws_region: us-east-1
+
+      - name: Invalidate CloudFront
+        uses: chetan/invalidate-cloudfront-action@master
+        env:
+          DISTRIBUTION: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+          PATHS: /
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_GITHUB_DEPLOY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_GITHUB_DEPLOY }}
