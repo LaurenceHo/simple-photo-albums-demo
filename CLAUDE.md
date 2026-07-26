@@ -15,6 +15,13 @@ You are very experienced with CloudFlare and AWS services and how you might inte
   - **D1** holds album metadata. `albums.id` is `TEXT PRIMARY KEY` (uniqueness is already enforced); `year` is a separate column used as filter/display metadata, not as a path component.
   - **R2** holds photo binaries under a **flat** `<albumId>/` prefix — there is no year folder. Treat R2 as a key-value store keyed by album id.
 
+# Architecture
+
+- **Server request path:** `routes/*-route.ts` (Hono + `@hono/zod-validator`) → `controllers/*-controller.ts` → `services/*-service.ts` → `d1-service.ts` (D1) / `r2-service.ts` (R2). Entry point: `server/src/worker.ts`.
+  - Controllers extend `BaseController` and **must** return through its helpers (`ok`, `clientError`, `notFoundError`, `unauthorized`, `insufficientPermission`, `conflictError`, `fail`) — never bare `c.json()`.
+- **UI data fetching:** TanStack Query is used **inside Pinia setup stores** (`ui/src/stores/*.ts`), not in `ui/src/composables/` — that folder is for non-data composables like `use-device.ts`. Components read state from stores. Entry point: `ui/src/main.ts`.
+- **UI HTTP layer:** `ui/src/services/*-service.ts` wrap `BaseApiRequestService.perform()`; `ui/src/schema/*.ts` holds Zod schemas and their inferred types.
+
 # Coding-specific guidelines
 
 - Prefer TypeScript and its conventions.
@@ -32,6 +39,21 @@ You are very experienced with CloudFlare and AWS services and how you might inte
   - To run a single workspace's checks: `bun run --cwd ui <script>` or `bun run --cwd server <script>`.
 - Local servers: `bun run dev` (UI on port 9000) and `bun run --cwd server start:wrangler` (Worker via Wrangler).
 
+# Gotchas
+
+- **API envelope:** every endpoint returns `ApiResponse<T>` = `{ code, status, message, data? }`. UI code branches on `code !== 200`, **not** `response.ok`. `BaseController.ok()` recursively strips `createdAt`/`createdBy`/`updatedAt`/`updatedBy`, so audit fields never reach the client.
+- **Query keys are inline literals** (e.g. `['fetchAlbumsByYears', year]`) — there is no central key factory. `ui/src/mocks/setup-query-mock.ts` switches on `queryKey[0]`; adding a query without adding a `case` there makes tests silently receive `data: null` instead of failing.
+- **Local dev needs both servers:** `ui/src/services/api-base-url.ts` hardcodes `http://localhost:8787/api` in DEV, so `bun run dev` (port 9000) is only useful with `bun run --cwd server start:wrangler` running. The Worker only allows CORS from `localhost:9000` when `DEVELOPMENT=true` is set in `server/.dev.vars`. For UI-only work use `bun run --cwd ui msw` (MSW handlers, Vite default port 5173).
+- **Zod schemas are duplicated, not shared:** `ui/src/schema/*` and `server/src/types/*` are independent. The server copies carry audit fields and `.omit()` them in `request-schemas.ts`. Do not import across workspaces.
+- **Server tests need a polyfill:** always run `bun run --cwd server test:server`, which sets `NODE_OPTIONS='--require ./test/slowbuffer-polyfill.cjs'`. Invoking `vitest` directly in `server/` drops it.
+
+# Deploy
+
+- There is no deploy script. Pushing to `master` triggers GitHub Actions with **path filters**: `web-app-build-deploy.yaml` → Cloudflare Pages, on `ui/src/**` or `ui/package.json`; `api-build-deploy.yaml` → Worker (`wrangler deploy --env production`), on `server/src/**`, `server/package.json`, or `server/wrangler.ci.toml`. Changing only `wrangler.toml`, config files, or tests deploys nothing.
+- **CI overwrites `server/wrangler.toml`** via `envsubst < wrangler.ci.toml > wrangler.toml`. Production config changes belong in `wrangler.ci.toml` + GitHub secrets; `wrangler.toml` holds dev bindings and `.dev.vars` holds local secrets.
+- D1 schema changes go in `server/migrations/` and are applied by hand: `wrangler d1 execute <db-name> --local|--remote --file=./migrations/<file>.sql`.
+- `.husky/pre-push` runs `type-check`, `lint`, and `test:all` — a push fails if any of them do.
+
 # Overall guidelines
 
 - Assume that the user is a junior developer.
@@ -39,8 +61,8 @@ You are very experienced with CloudFlare and AWS services and how you might inte
 
 # Project context
 
-- This product is a web-based photo album application. This project uses Bun (not Node.js) as the runtime, and deploys to Cloudflare Pages.
-  Do not suggest Node-specific APIs, or assume the user has tools not in the project. Always check existing scripts and README before suggesting manual commands.
+- A web-based photo album app for a small private group (no user management; admin access via Google OAuth).
+- Runtime is **Bun** — don't suggest Node-specific APIs or tools that aren't in `package.json`. Check existing scripts and the READMEs before proposing manual commands.
 
 # Debugging
 

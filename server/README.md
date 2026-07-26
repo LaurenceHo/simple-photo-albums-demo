@@ -51,7 +51,12 @@ bun install
    GOOGLE_PLACES_API_KEY=your_google_places_api_key
    VITE_GOOGLE_CLIENT_ID=your_google_client_id
    RAPIDAPI_KEY=your_rapidapi_key
+   DEVELOPMENT=true
    ```
+
+   `DEVELOPMENT=true` is required for local development: the worker only adds
+   `http://localhost:9000` to its allowed CORS origins when this flag is set. Without it, the UI
+   dev server's requests are rejected.
 
 2. Update `wrangler.toml` with your configuration (non-secret values):
    ```toml
@@ -97,16 +102,28 @@ This command runs `wrangler dev --local`, which starts the worker on a local ser
 ### Run unit tests
 
 ```bash
-bun run test:unit
+bun run test:server
 ```
+
+This script sets `NODE_OPTIONS='--require ./test/slowbuffer-polyfill.cjs'`, which the test suite
+depends on — running `vitest` directly will not work.
 
 ## Deployment
 
-To deploy your worker to Cloudflare:
+There is no `deploy` script. Deployment is handled by GitHub Actions
+(`.github/workflows/api-build-deploy.yaml`) on push to `master`, filtered to changes in
+`server/src/**`, `server/package.json`, or `server/wrangler.ci.toml`.
 
-```bash
-bun run deploy
-```
+The workflow regenerates `wrangler.toml` from `wrangler.ci.toml` with `envsubst`, uploads secrets,
+then runs `wrangler deploy --env production`. Production values come from GitHub secrets, so
+**edit `wrangler.ci.toml` (not `wrangler.toml`) for production config changes** — the local
+`wrangler.toml` is dev-only and gets overwritten in CI.
+
+There is deliberately no hand-deploy command documented here. The local `wrangler.toml` uses
+`name = "my-albums-worker"`, so `wrangler deploy --env production` would target
+`my-albums-worker-production` — **not** the production worker, which CI names via the
+`D1_PHOTO_ALBUMS_WORKER` secret and passes explicitly as `--name`. A manual deploy must pass that
+same `--name` value, or it will silently create/update the wrong worker.
 
 ## API endpoint list
 

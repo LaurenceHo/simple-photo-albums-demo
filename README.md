@@ -78,7 +78,7 @@ Please check [here](https://developers.google.com/identity/protocols/oauth2) for
 
 #### Login UI
 
-This project uses Google OAuth 2.0 to authenticate users. If you don't want to use Google OAuth 2.0, you will need to implement login UI and authentication process by yourself. Once you set up Google OAuth 2.0 client ID and OAuth consent screen, you can access login UI by going to `http://localhost:9000/login`. You will also need to add your Google account information in the D1 database you created. If every thing is set up correctly, you should be able to login with your Google account and see the admin features including album and photo management. If you just want to have a quick glance of UI, you can simply run `bun run msw`, it will launch UI on http://localhost:5173.
+This project uses Google OAuth 2.0 to authenticate users. If you don't want to use Google OAuth 2.0, you will need to implement login UI and authentication process by yourself. Once you set up Google OAuth 2.0 client ID and OAuth consent screen, you can access login UI by going to `http://localhost:9000/login`. You will also need to add your Google account information in the D1 database you created. If every thing is set up correctly, you should be able to login with your Google account and see the admin features including album and photo management. If you just want to have a quick glance of UI, you can simply run `bun run --cwd ui msw`, it will launch UI on http://localhost:5173.
 
 ### RapidAPI (AeroDataBox)
 
@@ -99,7 +99,7 @@ $ bun install
 ### Start the app in MSW mode (without server running)
 
 ```bash
-$ bun run msw
+$ bun run --cwd ui msw
 ```
 
 ### Start the app in development mode (hot-code reloading, error reporting, etc.)
@@ -117,8 +117,11 @@ $ bun run lint
 ### Run unit tests
 
 ```bash
-$ bun run test:unit
+$ bun run test:all
 ```
+
+This runs both workspaces. For one only: `bun run --cwd ui test:unit` or
+`bun run --cwd server test:server`.
 
 ### Build the app for production
 
