@@ -8,6 +8,9 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "outDir": "dist",
+    // TS 6.0 (TS5011) requires this to be explicit; "src" matches the inferred
+    // common source directory, so the emit layout is unchanged.
+    "rootDir": "src",
     "resolveJsonModule": true,
     "sourceMap": true,
     "types": [
