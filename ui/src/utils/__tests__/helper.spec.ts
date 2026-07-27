@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateAdaptiveSteps,
+  formatFileSize,
   getStaticFileUrl,
   getYearOptions,
   interpolateGreatCircle,
   sortByKey,
+  stripExtension,
 } from '../helper';
 
 globalThis.fetch = vi.fn();
@@ -29,6 +31,42 @@ describe('Helpers', () => {
       const expectedUrl = 'https://example.com/static/';
       expect(getStaticFileUrl(objectKey)).toBe(expectedUrl);
       vi.unstubAllEnvs();
+    });
+  });
+
+  describe('formatFileSize', () => {
+    it('formats below 1 MB as KB', () => {
+      expect(formatFileSize(1_234_567 / 100)).toBe('12.06 KB');
+    });
+
+    it('formats 1 MB and above as MB', () => {
+      expect(formatFileSize(1_234_567)).toBe('1.18 MB');
+    });
+
+    it('returns an empty string for undefined, rather than "NaN"', () => {
+      expect(formatFileSize(undefined)).toBe('');
+    });
+
+    it('returns an empty string for a zero byte count', () => {
+      expect(formatFileSize(0)).toBe('');
+    });
+  });
+
+  describe('stripExtension', () => {
+    it('removes a single extension', () => {
+      expect(stripExtension('photo1.jpg', '')).toBe('photo1');
+    });
+
+    it('removes only the last extension, for a name with multiple dots', () => {
+      expect(stripExtension('2026-01-02_08.44.59.jpg', '')).toBe('2026-01-02_08.44.59');
+    });
+
+    it('falls back when the result would otherwise be empty', () => {
+      expect(stripExtension('', 'Photo')).toBe('Photo');
+    });
+
+    it('does not fall back when the input is a non-empty string with no extension', () => {
+      expect(stripExtension('photo1', 'Photo')).toBe('photo1');
     });
   });
 

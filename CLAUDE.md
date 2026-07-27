@@ -58,6 +58,7 @@ You are very experienced with CloudFlare and AWS services and how you might inte
 
 - Assume that the user is a junior developer.
 - Always think through problems step-by-step.
+- NEVER use python.
 
 # Project context
 
@@ -71,4 +72,4 @@ Ask clarifying questions if the bug's source is ambiguous.
 
 # Git
 
-NEVER commit any code, unless explicitly told.
+- NEVER put your name in the commit message as co-author when committing any code.

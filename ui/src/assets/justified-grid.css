@@ -1,0 +1,72 @@
+/*
+ * Justified photo rows.
+ *
+ * Each cell contributes `flex-grow: --ratio` and
+ * `flex-basis: --ratio * --photo-row-height`. Flexbox distributes a row's free
+ * space in proportion to flex-grow, so for every cell in a row:
+ *
+ *   width  = ratio * (H + free / sum-of-ratios)
+ *   height = width / ratio = H + free / sum-of-ratios   <- equal for the whole row
+ *
+ * Sizes are therefore derived entirely in CSS. JavaScript supplies only --ratio,
+ * which means resize, zoom and orientation changes need no listener.
+ *
+ * Global rather than scoped because --photo-row-height is set on the container in
+ * PhotoList.vue and read by cells rendered inside Photo.vue.
+ */
+
+.justified-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  /*
+   * Row height is the single tuning knob; photos-per-row falls out of it and the
+   * container width. For 3:2 photos this yields 2 per row on a ~360px phone
+   * (matching the previous grid-cols-2 density) and 4 larger photos on a 1500px
+   * desktop, where the square grid previously showed 6. Lower the 1280px value to
+   * ~150px to restore the denser desktop look.
+   */
+  --photo-row-height: 105px;
+}
+
+@media (min-width: 640px) {
+  .justified-grid {
+    --photo-row-height: 150px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .justified-grid {
+    --photo-row-height: 190px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .justified-grid {
+    --photo-row-height: 220px;
+  }
+}
+
+.photo-cell {
+  flex-grow: var(--ratio, 1.5);
+  /*
+   * Both custom properties need fallbacks. Without one on --photo-row-height, a
+   * cell rendered outside .justified-grid resolves flex-basis to 0, and
+   * `min-width: 0` plus `aspect-ratio` then collapses it to zero height in Safari.
+   */
+  flex-basis: calc(var(--ratio, 1.5) * var(--photo-row-height, 150px));
+  aspect-ratio: var(--ratio, 1.5);
+  min-width: 0;
+}
+
+/*
+ * Trailing spacers stop flexbox stretching the final row to full width, which
+ * would make its photos taller than every other row. `flex-basis: 0` means they
+ * can never force an extra row; a high flex-grow means they absorb almost all of
+ * the last row's free space.
+ */
+.photo-cell-spacer {
+  flex-grow: 10;
+  flex-basis: 0;
+  height: 0;
+}

@@ -42,6 +42,24 @@ vi.mock('vue-router', async (importOriginal) => {
   };
 });
 
+// `PhotoLocationMap` (rendered here for the location picker) now binds Mapbox via a
+// template ref rather than `document.getElementById`, so it constructs a real
+// `mapboxgl.Map` even when this wrapper is never attached to `document.body`. jsdom
+// has no WebGL, so the unmocked constructor throws and corrupts later tests in this
+// file. Mock the library the same way `ui/src/components/__tests__/photo-location-map.spec.ts`
+// does.
+vi.mock('mapbox-gl', () => ({
+  default: {
+    accessToken: '',
+    Map: vi.fn(function () {
+      return { on: vi.fn(), remove: vi.fn(), resize: vi.fn() };
+    }),
+    Marker: vi.fn(function () {
+      return { setLngLat: vi.fn().mockReturnThis(), addTo: vi.fn() };
+    }),
+  },
+}));
+
 // Mock Vue Query
 vi.mock('@tanstack/vue-query', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/vue-query')>();

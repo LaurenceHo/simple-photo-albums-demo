@@ -1,6 +1,7 @@
 <template>
   <Button
     :class="extraClass"
+    aria-label="Photo actions"
     data-test-id="edit-photo-button"
     rounded
     severity="secondary"

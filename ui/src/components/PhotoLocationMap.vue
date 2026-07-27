@@ -1,14 +1,10 @@
 <template>
-  <div
-    id="photo-location-map"
-    :style="`width: ${width}; height: ${height};`"
-    class="rounded-md"
-  ></div>
+  <div :id="mapId" ref="mapContainer" :style="`width: ${width}; height: ${height};`" class="rounded-md"></div>
 </template>
 
 <script lang="ts" setup>
 import mapboxgl from 'mapbox-gl';
-import { onMounted, onUnmounted, toRefs } from 'vue';
+import { onMounted, onUnmounted, ref, toRefs, useId } from 'vue';
 
 const props = defineProps({
   latitude: {
@@ -31,33 +27,39 @@ const props = defineProps({
 
 const { latitude, longitude, width, height } = toRefs(props);
 
-let map: mapboxgl.Map;
+/**
+ * A unique id per instance. The album Popover map and the lightbox photo map can
+ * be mounted at the same time, so a shared literal id would make Mapbox bind to
+ * the wrong element.
+ */
+const mapId = useId();
+const mapContainer = ref<HTMLDivElement | null>(null);
+
+let map: mapboxgl.Map | undefined;
+
 onMounted(() => {
   mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_API_KEY as string;
-  const container = document.getElementById('photo-location-map');
 
-  if (container) {
-    map = new mapboxgl.Map({
-      container: 'photo-location-map',
-      style: 'mapbox://styles/mapbox/standard',
-      center: [longitude.value, latitude.value],
-      zoom: 11,
-    });
-
-    // Create a default Marker and add it to the map.
-    new mapboxgl.Marker()
-      .setLngLat([longitude.value as number, latitude.value as number])
-      .addTo(map);
-
-    map.on('idle', () => {
-      map.resize();
-    });
+  if (!mapContainer.value) {
+    return;
   }
+
+  map = new mapboxgl.Map({
+    container: mapContainer.value,
+    style: 'mapbox://styles/mapbox/standard',
+    center: [longitude.value, latitude.value],
+    zoom: 11,
+  });
+
+  new mapboxgl.Marker().setLngLat([longitude.value, latitude.value]).addTo(map);
+
+  map.on('idle', () => {
+    map?.resize();
+  });
 });
 
 onUnmounted(() => {
-  if (map) {
-    map.remove();
-  }
+  map?.remove();
+  map = undefined;
 });
 </script>

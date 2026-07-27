@@ -1,37 +1,62 @@
 <template>
-  <div v-if="photoStyle === 'grid'" class="photo-item w-full" data-test-id="photo-item">
-    <div :class="['relative cursor-pointer', { 'photo-selected rounded-md': isPhotoSelected }]">
-      <SquareImage
+  <div
+    v-if="photoStyle === 'grid'"
+    :style="{ '--ratio': aspectRatio }"
+    :class="['photo-item photo-cell relative', { 'photo-selected rounded-md': isPhotoSelected }]"
+    data-test-id="photo-item"
+  >
+    <!--
+      A real <button>, not a click-handling <img>: the image alone is not
+      focusable and ignores Enter/Space, which made the lightbox mouse-only. It
+      wraps only the image and stays a *sibling* of the admin overlay below -
+      that overlay contains buttons of its own, and a <button> inside a <button>
+      is invalid HTML that browsers reparent, dropping the inner control out of
+      the tab order.
+    -->
+    <button
+      :aria-label="`View ${photoId}`"
+      class="focus-visible:outline-primary-400 block h-full w-full cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2"
+      data-test-id="open-photo-button"
+      type="button"
+      @click="goToPhotoDetail"
+    >
+      <img
         :id="`photo-image-${photo['key']}`"
-        :alt="`photo image ${photo['key']}`"
-        :src="`${photo['url']}?tr=w-${imageWidth},h-${imageWidth}`"
-        @click="goToPhotoDetail"
+        :alt="photoAltText"
+        :src="thumbnailUrl(photo['url'])"
+        :srcset="thumbnailSrcSet(photo['url'])"
+        :loading="eager ? 'eager' : 'lazy'"
+        :fetchpriority="eager ? 'high' : 'auto'"
+        class="bg-surface-200 dark:bg-surface-800 h-full w-full rounded-md object-cover"
+        decoding="async"
+        @load="onThumbnailLoad"
       />
-      <div
-        v-if="isAdmin"
-        class="photo-top-button-container absolute top-0 right-0 left-0 flex justify-between"
+    </button>
+    <div
+      v-if="isAdmin"
+      class="photo-top-button-container absolute top-0 right-0 left-0 flex justify-between"
+    >
+      <Button
+        v-tooltip="'Select Photo'"
+        :severity="`${isPhotoSelected ? 'primary' : 'secondary'}`"
+        aria-label="Select photo"
+        data-test-id="select-photo-button"
+        rounded
+        text
+        @click="selectPhoto(photo['key'])"
       >
-        <Button
-          v-tooltip="'Select Photo'"
-          :severity="`${isPhotoSelected ? 'primary' : 'secondary'}`"
-          data-test-id="select-photo-button"
-          rounded
-          text
-          @click="selectPhoto(photo['key'])"
-        >
-          <template #icon>
-            <IconCircleCheckFilled :size="24" />
-          </template>
-        </Button>
-        <EditPhotoButton :photo-key="photo['key']" extra-class="text-white" />
-      </div>
-      <IconInfoCircle
-        v-if="isAlbumCover(photo['key'])"
-        v-tooltip="'Album cover'"
-        :size="24"
-        class="text-primary-600 absolute bottom-1 left-1"
-      />
+        <template #icon>
+          <IconCircleCheckFilled :size="24" />
+        </template>
+      </Button>
+      <EditPhotoButton :photo-key="photo['key']" extra-class="text-white" />
     </div>
+    <IconInfoCircle
+      v-if="isAlbumCover(photo['key'])"
+      v-tooltip="'Album cover'"
+      :size="24"
+      class="text-primary-600 absolute bottom-1 left-1"
+    />
   </div>
   <div
     v-else
@@ -41,14 +66,23 @@
     ]"
     data-test-id="detail-photo-item"
   >
-    <div class="relative shrink-0" @click="goToPhotoDetail">
+    <!-- A button for the same reason as the grid cell above: the list view is
+         the other way into the lightbox, so leaving it a click-handling <div>
+         would keep that route mouse-only. -->
+    <button
+      :aria-label="`View ${photoId}`"
+      class="focus-visible:outline-primary-400 relative shrink-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2"
+      data-test-id="open-photo-button"
+      type="button"
+      @click="goToPhotoDetail"
+    >
       <SquareImage
         :id="`photo-image-${photo['key']}`"
-        :alt="`photo image ${photo['key']}`"
+        :alt="photoAltText"
         :size="thumbnailSize"
-        :src="`${photo['url']}?tr=w-${thumbnailSize},h-${thumbnailSize}`"
+        :src="detailThumbnailUrl(photo['url'], thumbnailSize)"
       />
-    </div>
+    </button>
     <div class="ml-3 min-w-0 grow" @click="selectPhoto(photo['key'])">
       <div class="text-surface-900 dark:text-surface-300 truncate text-lg">{{ photoId }}</div>
       <div class="text-surface-400 dark:text-surface-500 text-sm">{{ lastModified }}</div>
@@ -63,13 +97,16 @@
 <script lang="ts" setup>
 import { EditPhotoButton } from '@/components/button';
 import SquareImage from '@/components/SquareImage.vue';
-import { useDevice } from '@/composables';
+import { useDevice, usePhotoAspectRatios } from '@/composables';
+import type { Photo } from '@/schema';
 import { useAlbumStore, usePhotoStore, useUserConfigStore } from '@/stores';
+import { formatFileSize, stripExtension } from '@/utils/helper';
+import { detailThumbnailUrl, photoFileName, thumbnailSrcSet, thumbnailUrl } from '@/utils/photo-url';
 import { IconCircleCheckFilled, IconInfoCircle } from '@tabler/icons-vue';
 import { storeToRefs } from 'pinia';
 import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
-import { computed, onMounted, ref, toRefs } from 'vue';
+import { computed, toRefs, type PropType } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 const props = defineProps({
@@ -78,14 +115,19 @@ const props = defineProps({
     required: true,
   },
   photo: {
-    type: Object,
+    type: Object as PropType<Photo>,
     required: true,
     default: () => ({ key: '', url: '' }),
+  },
+  eager: {
+    type: Boolean,
+    default: false,
   },
 });
 
 const { photo } = toRefs(props);
-const imageWidth = ref(250);
+
+const { getRatio, setRatio } = usePhotoAspectRatios();
 
 const route = useRoute();
 const router = useRouter();
@@ -100,13 +142,14 @@ const toast = useToast();
 
 const MAX_SELECTED_PHOTOS = 50;
 
-const photoId = computed(() => photo.value['key'].split('/')[1]);
+const photoId = computed(() => photoFileName(photo.value['key']));
 const thumbnailSize = computed(() => (isXSmallDevice.value ? 80 : 100));
-const lastModified = computed(() => new Date(photo.value['lastModified']).toLocaleString());
-const fileSize = computed(() => {
-  const size = photo.value['size'] / 1024;
-  return size < 1024 ? `${size.toFixed(2)} KB` : `${(size / 1024).toFixed(2)} MB`;
-});
+const aspectRatio = computed(() => getRatio(photo.value['key']));
+
+/** File name without its extension — far more useful to a screen reader than the key. */
+const photoAltText = computed(() => stripExtension(photoId.value, ''));
+const lastModified = computed(() => new Date(photo.value['lastModified'] ?? '').toLocaleString());
+const fileSize = computed(() => formatFileSize(photo.value['size']));
 const isPhotoSelected = computed(() => selectedPhotos.value.includes(photo.value['key']));
 
 const goToPhotoDetail = async () => {
@@ -133,12 +176,10 @@ const selectPhoto = (key: string) => {
   setSelectedPhotos(newSelectedPhotos);
 };
 
-onMounted(() => {
-  const element = document.getElementById(`photo-image-${photo.value['key']}`);
-  if (element) {
-    imageWidth.value = element.clientWidth;
-  }
-});
+const onThumbnailLoad = (event: Event) => {
+  const img = event.target as HTMLImageElement;
+  setRatio(photo.value['key'], img.naturalWidth, img.naturalHeight);
+};
 </script>
 
 <style lang="scss" scoped>

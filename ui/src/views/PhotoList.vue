@@ -3,7 +3,7 @@
     <SkeletonPhotoList />
   </template>
   <template v-else>
-    <div v-if="!photoId && !showPhotoUploader" class="py-4">
+    <div v-if="!showPhotoUploader" class="py-4">
       <div class="flex flex-col items-start pb-4 sm:flex-row sm:items-center">
         <div class="flex w-full items-center sm:w-auto">
           <Button class="shrink-0" rounded @click="goBack">
@@ -160,46 +160,40 @@
       </Toolbar>
       <div
         v-if="photosInAlbum.length > 0"
-        :class="[
-          'grid',
+        :class="
           photoStyle === 'grid'
-            ? 'grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
-            : 'grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
-        ]"
+            ? 'justified-grid'
+            : 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+        "
       >
         <Photo
-          v-for="photo in photosInAlbum"
+          v-for="(photo, index) in photosInAlbum"
           :key="photo.key"
+          :eager="photoStyle === 'grid' && index < EAGER_PHOTO_COUNT"
           :photo="photo"
           :photo-style="photoStyle"
         />
+        <!-- Keeps the final justified row at a normal height; see justified-grid.css -->
+        <template v-if="photoStyle === 'grid'">
+          <i v-for="n in 6" :key="`spacer-${n}`" aria-hidden="true" class="photo-cell-spacer" />
+        </template>
       </div>
       <h2 v-if="photosInAlbum.length === 0">No results.</h2>
       <ScrollTop />
     </div>
-    <div v-else class="py-4">
-      <transition
-        appear
-        enter-active-class="transition ease-out duration-300"
-        enter-from-class="opacity-0"
-        enter-to-class="opacity-100"
-        leave-active-class="transition ease-in duration-300"
-        leave-from-class="opacity-100"
-        leave-to-class="opacity-0"
-      >
-        <PhotoDetail
-          v-if="photoId"
-          @refresh-photo-list="refreshPhotoList"
-          @close-photo-detail="closePhotoDetail"
-        />
-        <UploadPhotos
-          v-else-if="showPhotoUploader && isAdmin"
-          :album-id="currentAlbum?.id"
-          @refresh-photo-list="refreshPhotoList"
-          @close-photo-uploader="showPhotoUploader = false"
-        />
-      </transition>
+    <div v-if="showPhotoUploader && isAdmin" class="py-4">
+      <UploadPhotos
+        :album-id="currentAlbum?.id"
+        @refresh-photo-list="refreshPhotoList"
+        @close-photo-uploader="showPhotoUploader = false"
+      />
     </div>
+
+    <PhotoDetail
+      v-if="photoId"
+      @close-photo-detail="closePhotoDetail"
+      @refresh-photo-list="refreshPhotoList"
+    />
   </template>
 
   <MovePhotos
@@ -249,6 +243,9 @@ import { storeToRefs } from 'pinia';
 import { Button, Popover, ScrollTop, SelectButton, Tag, Toolbar } from 'primevue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+
+/** Cells loaded eagerly so the first screenful does not wait on the lazy-load observer. */
+const EAGER_PHOTO_COUNT = 12;
 
 const route = useRoute();
 const router = useRouter();

@@ -1,202 +1,168 @@
 <template>
-  <section>
-    <div class="flex justify-end">
-      <Button
-        class="mb-2"
-        data-test-id="close-button"
-        rounded
-        severity="secondary"
-        @click="emits('closePhotoDetail')"
-      >
-        <template #icon>
-          <IconX :size="24" />
-        </template>
-      </Button>
-    </div>
-
-    <div class="grid grid-cols-4 gap-3">
-      <div class="col-span-4 flex flex-col items-center lg:col-span-3">
-        <div class="mb-3 w-full text-center">
-          <div data-test-id="photo-file-name" class="text-surface-900 dark:text-surface-300">
-            {{ photoFileName }}
-          </div>
-          <div data-test-id="photo-index" class="text-surface-400 dark:text-surface-500">
-            ({{ selectedImageIndex + 1 }}/{{ photosInAlbum.length }})
-          </div>
+  <Teleport to="body">
+    <div
+      ref="dialogRef"
+      :aria-label="`Photo ${photoFileName}`"
+      aria-modal="true"
+      class="fixed inset-0 z-[1100] flex flex-col bg-black/95"
+      role="dialog"
+      tabindex="-1"
+    >
+      <header class="flex shrink-0 items-center justify-between gap-2 p-2 text-white">
+        <div class="text-surface-400 min-w-0 text-sm" data-test-id="photo-index">
+          ({{ selectedImageIndex + 1 }}/{{ photosInAlbum.length }})
         </div>
-        <IconView360Number v-if="isPanoramaPhoto" />
-        <div class="relative h-auto min-h-80 w-full sm:min-h-96 lg:h-[calc(80vh-80px)]">
-          <div
-            id="photo-image-detail"
-            ref="photoImageDetailRef"
-            class="flex h-full items-center justify-center"
+        <div class="flex shrink-0 items-center gap-1">
+          <Button
+            v-tooltip.bottom="'Info'"
+            :aria-pressed="isInfoOpen"
+            aria-label="Toggle photo information"
+            data-test-id="photo-info-button"
+            rounded
+            severity="secondary"
+            text
+            @click="toggleInfo"
           >
+            <template #icon>
+              <IconInfoCircle :size="24" />
+            </template>
+          </Button>
+          <EditPhotoButton v-if="isAdmin && selectedImage" :photo-key="selectedImage.key" />
+          <Button
+            aria-label="Close photo"
+            data-test-id="close-button"
+            rounded
+            severity="secondary"
+            text
+            @click="emits('closePhotoDetail')"
+          >
+            <template #icon>
+              <IconX :size="24" />
+            </template>
+          </Button>
+        </div>
+      </header>
+
+      <div class="relative flex min-h-0 grow">
+        <div
+          :class="['relative flex min-h-0 min-w-0 grow flex-col', { 'lg:mr-[360px]': isInfoOpen }]"
+        >
+          <div class="relative flex min-h-0 grow items-center justify-center">
+            <div
+              v-if="isPanoramaPhoto"
+              class="bg-surface-900/60 absolute top-2 left-2 z-10 flex items-center rounded-full p-1 text-white"
+              data-test-id="panorama-badge"
+            >
+              <IconView360Number aria-label="360 panorama photo" :size="20" role="img" />
+            </div>
+
             <ProgressSpinner v-if="loadImage" />
             <template v-else>
               <img
                 v-if="!isPanoramaPhoto"
-                :alt="
-                  photoFileName
-                    .replace(/\.(jpg|jpeg|png|gif|webp)$/i, '')
-                    .replace(/(photo|image)/gi, '')
-                    .trim() || 'Detail'
-                "
-                :src="selectedImage?.url || ''"
-                :style="imageStyles"
-                class="max-h-full rounded-md"
-                @load="onImageLoad"
+                :alt="photoAltText"
+                :src="sharedPhotoUrl(selectedImage?.url ?? '')"
+                class="max-h-full max-w-full object-contain"
                 @error="onImageError"
+                @load="onImageLoad"
               />
-              <PanoramaViewer v-else :imageUrl="selectedImage?.url ?? ''" />
+              <PanoramaViewer v-else :imageUrl="sharedPhotoUrl(selectedImage?.url ?? '')" />
             </template>
-          </div>
-          <Button
-            class="absolute! top-1/2! left-0!"
-            data-test-id="previous-photo-button"
-            rounded
-            @click="nextPhoto(-1)"
-          >
-            <template #icon>
-              <IconChevronLeft :size="24" />
-            </template>
-          </Button>
-          <Button
-            class="absolute! top-1/2! right-0!"
-            data-test-id="next-photo-button"
-            rounded
-            @click="nextPhoto(1)"
-          >
-            <template #icon>
-              <IconChevronRight :size="24" />
-            </template>
-          </Button>
-        </div>
-      </div>
-      <div class="col-span-4 mt-3 lg:col-span-1 lg:mt-0">
-        <div class="mx-4 flex justify-between">
-          <span class="text-semibold text-surface-900 dark:text-surface-300 text-2xl">Details</span>
-          <EditPhotoButton v-if="isAdmin && selectedImage" :photo-key="selectedImage?.key" />
-        </div>
-        <Divider v-if="localDateTime" />
-        <div v-if="localDateTime" class="mx-4 flex items-center">
-          <IconCalendarTime :size="24" class="mr-4" />
-          <span class="text-surface-900 dark:text-surface-300">{{ localDateTime }}</span>
-        </div>
-        <Divider v-if="imageOriginalHeight && imageOriginalWidth" />
-        <div v-if="imageOriginalHeight && imageOriginalWidth" class="mx-4 flex items-center">
-          <IconPhoto :size="24" class="mr-4" />
-          <div class="text-surface-900 dark:text-surface-300">
-            <div>
-              {{
-                isPhotoLandscape || exifTags.Orientation?.value === 0
-                  ? `${imageOriginalWidth} x ${imageOriginalHeight}`
-                  : `${imageOriginalHeight} x ${imageOriginalWidth}`
-              }}
-            </div>
-            <small
-              v-if="
-                exifTags.ApertureValue ||
-                exifTags.MaxApertureValue ||
-                exifTags.ExposureTime ||
-                exifTags.FocalLength ||
-                exifTags.ISOSpeedRatings ||
-                exifTags.ExposureBiasValue
-              "
-              class="text-surface-400 dark:text-surface-500"
+
+            <Button
+              v-if="photosInAlbum.length > 1"
+              aria-label="Previous photo"
+              class="absolute! top-1/2! left-2! h-11! min-w-11! -translate-y-1/2!"
+              data-test-id="previous-photo-button"
+              rounded
+              @click="nextPhoto(-1)"
             >
-              <span v-if="aperture !== '0.0'">f/{{ aperture }}</span>
-              <span v-if="exifTags.ExposureTime">
-                <span v-if="aperture !== '0.0'"> | </span>
-                {{ (exifTags.ExposureTime as RationalTag).description }}
-              </span>
-              <span v-if="exifTags.FocalLength">
-                <span v-if="aperture !== '0.0' || exifTags.ExposureTime"> | </span>
-                {{ (exifTags.FocalLength as RationalTag).description }}
-              </span>
-              <span v-if="exifTags.ISOSpeedRatings">
-                <span v-if="aperture !== '0.0' || exifTags.ExposureTime || exifTags.FocalLength">
-                  |
-                </span>
-                ISO{{ (exifTags.ISOSpeedRatings as NumberTag).description }}
-              </span>
-              <span v-if="exposureBias !== '0.00'">
-                <span
-                  v-if="
-                    aperture !== '0.0' ||
-                    exifTags.ExposureTime ||
-                    exifTags.FocalLength ||
-                    exifTags.ISOSpeedRatings
-                  "
-                >
-                  |
-                </span>
-                EV{{ exposureBias }}
-              </span>
-            </small>
+              <template #icon>
+                <IconChevronLeft :size="24" />
+              </template>
+            </Button>
+            <Button
+              v-if="photosInAlbum.length > 1"
+              aria-label="Next photo"
+              class="absolute! top-1/2! right-2! h-11! min-w-11! -translate-y-1/2!"
+              data-test-id="next-photo-button"
+              rounded
+              @click="nextPhoto(1)"
+            >
+              <template #icon>
+                <IconChevronRight :size="24" />
+              </template>
+            </Button>
           </div>
+
+          <template v-if="showCaptionAndFilmstrip">
+            <p
+              v-if="photoFileName"
+              class="shrink-0 truncate px-4 pt-2 text-center text-white"
+              data-test-id="photo-file-name"
+            >
+              {{ photoFileName }}
+            </p>
+
+            <PhotoFilmstrip
+              :active-index="selectedImageIndex"
+              :photos="photosInAlbum"
+              class="shrink-0"
+              @select="goToPhotoIndex"
+            />
+          </template>
         </div>
-        <Divider v-if="exifTags.Model" />
-        <div v-if="exifTags.Model" class="mx-4 flex items-center">
-          <IconCamera :size="24" class="mr-4" />
-          <div class="text-surface-900 dark:text-surface-300">
-            <div>
-              {{ exifTags.Make?.description }} {{ (exifTags.Model as StringArrayTag).value[0] }}
-            </div>
-            <small v-if="exifTags.LensModel" class="text-surface-400 dark:text-surface-500">
-              {{ (exifTags.LensModel as StringArrayTag).value[0] }}
-            </small>
-          </div>
-        </div>
-        <Divider v-if="exifTags.GPSLatitudeRef && exifTags.GPSLongitudeRef" />
-        <div
-          v-if="
-            exifTags.GPSLatitudeRef &&
-            exifTags.GPSLongitudeRef &&
-            longitude > -1000 &&
-            latitude > -1000
-          "
-          class="mx-4"
+
+        <transition
+          enter-active-class="transition ease-out duration-200 motion-reduce:transition-none"
+          enter-from-class="opacity-0 translate-y-full lg:translate-y-0 lg:translate-x-full"
+          leave-active-class="transition ease-in duration-200 motion-reduce:transition-none"
+          leave-to-class="opacity-0 translate-y-full lg:translate-y-0 lg:translate-x-full"
         >
-          <PhotoLocationMap :latitude="latitude" :longitude="longitude" />
-        </div>
+          <aside
+            v-if="isInfoOpen"
+            aria-label="Photo information"
+            class="dark:bg-surface-900 bg-surface-0 absolute right-0 bottom-0 left-0 z-10 h-1/2 overflow-y-auto rounded-t-lg p-4 lg:top-0 lg:left-auto lg:h-full lg:w-[360px] lg:rounded-none"
+            data-test-id="photo-info-panel"
+          >
+            <PhotoInfoPanel
+              :exif-tags="exifTags"
+              :is-panorama="isPanoramaPhoto"
+              :natural-height="naturalHeight"
+              :natural-width="naturalWidth"
+              :photo="selectedImage"
+            />
+          </aside>
+        </transition>
       </div>
     </div>
-  </section>
+  </Teleport>
 </template>
 
 <script lang="ts" setup>
 import { EditPhotoButton } from '@/components/button';
 import PanoramaViewer from '@/components/PanoramaViewer.vue';
-import PhotoLocationMap from '@/components/PhotoLocationMap.vue';
+import PhotoFilmstrip from '@/components/PhotoFilmstrip.vue';
+import PhotoInfoPanel from '@/components/PhotoInfoPanel.vue';
+import { useDevice } from '@/composables';
+import type { ExifData } from '@/schema';
 import { usePhotoStore, useUserConfigStore } from '@/stores';
+import { stripExtension } from '@/utils/helper';
+import { PHOTO_INFO_PANEL_OPEN } from '@/utils/local-storage-key';
+import { photoFileName as getPhotoFileName, sharedPhotoUrl } from '@/utils/photo-url';
 import {
-  IconCalendarTime,
-  IconCamera,
   IconChevronLeft,
   IconChevronRight,
-  IconPhoto,
+  IconInfoCircle,
   IconView360Number,
   IconX,
 } from '@tabler/icons-vue';
-import type {
-  ExifTags,
-  FileTags,
-  NumberTag,
-  RationalTag,
-  StringArrayTag,
-  ValueTag,
-} from 'exifreader';
 import ExifReader from 'exifreader';
 import { storeToRefs } from 'pinia';
-import { Button, Divider, ProgressSpinner } from 'primevue';
+import { Button, ProgressSpinner } from 'primevue';
 import { useToast } from 'primevue/usetoast';
-import { computed, type ComputedRef, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-
-type ExifData = ExifTags &
-  FileTags & {
-    ProjectionType?: ValueTag;
-  };
 
 const emits = defineEmits(['refreshPhotoList', 'closePhotoDetail']);
 
@@ -210,13 +176,12 @@ const photoStore = usePhotoStore();
 const { photosInAlbum, isFetchingPhotos } = storeToRefs(photoStore);
 const { findPhotoByIndex, findPhotoIndex } = photoStore;
 
+const { isLargeDevice } = useDevice();
+
 const selectedImageIndex = ref(-1);
 const photoFileName = ref('');
 const exifTags = ref<Partial<ExifData>>({});
 const loadImage = ref(false);
-const photoImageDetailRef = ref<HTMLDivElement | null>(null);
-const imageContainerWidth = ref(0);
-const imageContainerHeight = ref(0);
 const naturalWidth = ref(0);
 const naturalHeight = ref(0);
 
@@ -225,88 +190,9 @@ const albumId = computed(() => route.params['albumId'] as string);
 const albumYear = computed(() => route.params['year'] as string);
 const photoId = computed(() => route.query['photo'] as string);
 
-/** Compute photo EXIF data begin */
-const localDateTime = computed(() => {
-  let dateTime = exifTags.value.DateTime?.description;
-  const offsetTime = exifTags.value.OffsetTime?.value?.[0] ?? '';
+/** File name without its extension, for screen readers. */
+const photoAltText = computed(() => stripExtension(photoFileName.value, 'Photo'));
 
-  if (!dateTime && photoFileName.value) {
-    // Try to parse from filename pattern: YYYY-MM-DD_HH.MM.SS or YYYY-MM-DD
-    const match = photoFileName.value.match(
-      /^(\d{4})-(\d{2})-(\d{2})(_(\d{2})\.(\d{2})\.(\d{2}))?/,
-    );
-    if (match) {
-      const [, year, month, day, , hour, minute, second] = match;
-      dateTime = `${year}:${month}:${day} ${hour || '00'}:${minute || '00'}:${second || '00'}`;
-    }
-  }
-
-  if (dateTime) {
-    // Validate format: "YYYY:MM:DD HH:MM:SS"
-    if (!/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$/.test(dateTime)) {
-      return null;
-    }
-
-    // Convert EXIF date format to ISO format
-    const isoDateTime = dateTime.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3');
-    const date = new Date(isoDateTime);
-
-    // Validate parsed date
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    return `${date.toLocaleString()} ${offsetTime}`;
-  }
-  return null;
-});
-
-const latitude: ComputedRef<number> = computed(() => {
-  if (exifTags.value.GPSLatitude?.description) {
-    if (exifTags.value.GPSLatitudeRef?.value[0] === 'S') {
-      return Number(exifTags.value.GPSLatitude?.description) * -1;
-    }
-    return Number(exifTags.value.GPSLatitude?.description);
-  }
-  return -1000;
-});
-
-const longitude: ComputedRef<number> = computed(() => {
-  if (exifTags.value.GPSLongitude?.description) {
-    if (exifTags.value.GPSLongitudeRef?.value[0] === 'W') {
-      return Number(exifTags.value.GPSLongitude?.description) * -1;
-    }
-    return Number(exifTags.value.GPSLongitude?.description);
-  }
-  return -1000;
-});
-
-const exposureBias = computed(() =>
-  Number.parseFloat(exifTags.value.ExposureBiasValue?.description ?? '0').toFixed(2),
-);
-
-const aperture = computed(() =>
-  Number.parseFloat(
-    exifTags.value.ApertureValue?.description ??
-      exifTags.value.MaxApertureValue?.description ??
-      '0',
-  ).toFixed(1),
-);
-
-const imageOriginalWidth = computed(
-  () => naturalWidth.value || Number(exifTags.value['Image Width']?.value ?? 0),
-);
-const imageOriginalHeight = computed(
-  () => naturalHeight.value || Number(exifTags.value['Image Height']?.value ?? 0),
-);
-const isPhotoLandscape = computed(
-  () =>
-    (isPanoramaPhoto.value ||
-      !exifTags.value.Orientation ||
-      exifTags.value.Orientation?.value === 0 ||
-      exifTags.value.Orientation?.value === 1 ||
-      exifTags.value.Orientation?.value === 3) &&
-    imageOriginalWidth.value > imageOriginalHeight.value,
-);
 const isPanoramaPhoto = computed(() => {
   if (exifTags.value.ProjectionType?.description === 'equirectangular') return true;
 
@@ -334,88 +220,123 @@ const isPanoramaPhoto = computed(() => {
   }
 
   const fileName = photoFileName.value.toLowerCase();
-  return fileName.includes('360') || fileName.includes('pano');
+  // `360` must not sit inside a longer number: batch_bird-8360220.jpg is not a panorama.
+  const has360 = /(?:^|\D)360(?:\D|$)/.test(fileName);
+  // `pano` must start a word, so "japanophile" does not match.
+  const hasPano = /(?:^|[^a-z])pano/.test(fileName);
+  return has360 || hasPano;
 });
-/** Compute photo EXIF data end */
 
-/** Compute image display size begin */
-const imageStyles = computed(() => {
-  const styles = { height: '', width: '' };
+const dialogRef = ref<HTMLDivElement | null>(null);
 
-  if (imageOriginalWidth.value === 0 || imageOriginalHeight.value === 0) {
-    return { width: '100%', height: 'auto' };
+/**
+ * Read the persisted info-panel preference. Unguarded, this read throws in Safari
+ * private mode (or with storage disabled entirely) - and since it runs during
+ * `setup()`, an uncaught throw here would fail the whole component's mount, not
+ * just this one preference. Defaults closed on any failure, matching `toggleInfo`'s
+ * existing write-side try/catch below.
+ */
+const readInfoOpenPreference = (): boolean => {
+  try {
+    return localStorage.getItem(PHOTO_INFO_PANEL_OPEN) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const isInfoOpen = ref(readInfoOpenPreference());
+
+/**
+ * True when a PrimeVue popup is stacked above the lightbox. Shared by
+ * `onHandleKeydown` and `onTrapFocus` so both bail out identically: whichever one
+ * kept running would fight the popup's own Tab trap and Escape handling, and keep
+ * driving the photo underneath it.
+ *
+ * Matched on ARIA roles rather than PrimeVue's `.p-dialog-mask`/`.p-menu` classes,
+ * since roles are the public contract and survive a version bump. All four are
+ * needed: `Dialog` is `dialog`, `ConfirmDialog` is `alertdialog`, the photo-actions
+ * `Menu` is `menu`, and a `Select` popup is `listbox`. Do not narrow this - missing
+ * `menu` let ArrowRight keep changing the photo while the actions menu stayed open,
+ * so Delete acted on the wrong one.
+ *
+ * **Known gap.** This assumes every element carrying these roles is `v-if`-rendered,
+ * which holds for all current usages but not for the roles themselves - a `multiple`
+ * `AutoComplete` or an inline `Listbox` is always mounted. Adding one to
+ * `PhotoList.vue`/`App.vue` would pin this to `true` and silently kill lightbox
+ * keyboard navigation. Left as-is because telling "popup above the lightbox" from
+ * "unrelated mounted listbox" needs a signal this has no access to (DOM
+ * position/z-index, or a marker PrimeVue does not provide), and dropping `listbox`
+ * to dodge it would reopen the wrong-photo-deletion bug above.
+ */
+const hasNestedDialog = (): boolean =>
+  Array.from(
+    document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'),
+  ).some((element) => element !== dialogRef.value);
+
+/**
+ * Below `lg`, the info panel is a bottom sheet covering the lower half of the
+ * screen - directly on top of the caption and filmstrip. Unmounting them while
+ * fully occluded avoids wasting layout and keeps unreachable controls out of the
+ * accessibility tree. At `lg+` the panel is a side drawer instead, so both stay
+ * and simply shift over with the rest of the stage (`lg:mr-[360px]`).
+ */
+const showCaptionAndFilmstrip = computed(() => !isInfoOpen.value || isLargeDevice.value);
+
+const toggleInfo = () => {
+  isInfoOpen.value = !isInfoOpen.value;
+  try {
+    localStorage.setItem(PHOTO_INFO_PANEL_OPEN, String(isInfoOpen.value));
+  } catch {
+    // Storage disabled: the preference simply does not survive the session.
+  }
+};
+
+/**
+ * Navigate to the photo at absolute `index`, updating the `?photo=` query
+ * param - the single source of truth for which photo is displayed. Both
+ * `nextPhoto` (prev/next chevrons, arrow keys) and the filmstrip's `select`
+ * event route through this, so there is exactly one navigation path.
+ */
+const goToPhotoIndex = (index: number) => {
+  const photoListLength = photosInAlbum.value.length;
+  if (photoListLength === 0 || index < 0 || index >= photoListLength) {
+    return;
   }
 
-  const aspectRatio = imageOriginalWidth.value / imageOriginalHeight.value;
-
-  // If aspect ratio is invalid, fallback
-  if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
-    return { width: '100%', height: 'auto' };
-  }
-
-  // Calculate maximum dimensions based on container
-  const containerWidth = imageContainerWidth.value || 0;
-  const containerHeight = imageContainerHeight.value || 0;
-
-  // If container dimensions are 0 (e.g. not mounted yet), fallback to a reasonable default or 100%
-  if (containerWidth === 0 || containerHeight === 0) {
-    return { width: '100%', height: 'auto' };
-  }
-
-  const maxWidth = Math.min(imageOriginalWidth.value, containerWidth, 1080);
-  const maxHeight = Math.min(imageOriginalHeight.value, containerHeight);
-
-  // For square or landscape images
-  if (aspectRatio >= 1) {
-    let width = Math.round(maxWidth);
-    let height = Math.round(width / aspectRatio);
-
-    // If calculated height exceeds container height, scale based on height instead
-    if (height > maxHeight) {
-      height = Math.round(maxHeight);
-      width = Math.round(height * aspectRatio);
-    }
-    styles.width = `${width}px`;
-    styles.height = `${height}px`;
-  }
-  // For portrait images
-  else {
-    let height = Math.round(maxHeight);
-    let width = Math.round(height * aspectRatio);
-
-    // If calculated width exceeds max width, scale based on width instead
-    if (width > maxWidth) {
-      width = Math.round(maxWidth);
-      height = Math.round(width / aspectRatio);
-    }
-    styles.width = `${width}px`;
-    styles.height = `${height}px`;
-  }
-
-  return styles;
-});
-/** Compute image display size end */
-
-const nextPhoto = (dir: number) => {
+  // Reset only once the index is known valid - resetting first (as this used to)
+  // blanked the info panel and could flip `isPanoramaPhoto` even for a rejected,
+  // out-of-bounds index that never actually navigates anywhere.
   exifTags.value = {};
 
+  selectedImageIndex.value = index;
+
+  if (selectedImage.value) {
+    const photoId = getPhotoFileName(selectedImage.value.key);
+    router.replace({ query: { ...route.query, photo: photoId } });
+  }
+};
+
+const nextPhoto = (dir: number) => {
   const photoListLength = photosInAlbum.value.length;
   if (photoListLength === 0) {
     return;
   }
 
-  selectedImageIndex.value =
+  const newIndex =
     (selectedImageIndex.value + (dir % photoListLength) + photoListLength) % photoListLength;
-
-  if (selectedImage.value) {
-    const photoId = selectedImage.value.key.split('/')[1];
-    router.replace({ query: { ...route.query, photo: photoId } });
-  }
+  goToPhotoIndex(newIndex);
 };
 
 const onHandleKeydown = (event: KeyboardEvent) => {
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    return;
+  }
+
+  // A nested dialog (Move/Delete/Rename, etc.) owns keyboard input while it is open -
+  // without this bailout, arrow keys and `i` would keep driving the photo underneath
+  // it instead of being inert while the nested dialog is focused.
+  if (hasNestedDialog()) {
     return;
   }
 
@@ -429,16 +350,18 @@ const onHandleKeydown = (event: KeyboardEvent) => {
     case 'Escape':
       emits('closePhotoDetail');
       break;
+    case 'i':
+      toggleInfo();
+      break;
   }
 };
 
-const updateContainerDimensions = () => {
-  if (photoImageDetailRef.value) {
-    imageContainerWidth.value = photoImageDetailRef.value.clientWidth;
-    imageContainerHeight.value = photoImageDetailRef.value.clientHeight;
-  }
-};
-
+/**
+ * `img.naturalWidth/Height` describe the actual bytes the `<img>` loaded via
+ * `sharedPhotoUrl`, which applies no dimension transform - so these are the
+ * true original resolution, not a downscaled copy. `PhotoInfoPanel`'s "W x H"
+ * line and its derived megapixels figure rely on that.
+ */
 const onImageLoad = (event: Event) => {
   const img = event.target as HTMLImageElement;
   naturalWidth.value = img.naturalWidth;
@@ -452,22 +375,79 @@ const onImageError = () => {
   loadImage.value = false;
 };
 
-watch(loadImage, async (newVal) => {
-  if (!newVal) {
-    await nextTick();
-    updateContainerDimensions();
+/** Element focused before the lightbox opened, so focus can be handed back. */
+let previouslyFocused: HTMLElement | null = null;
+
+/**
+ * Every term needs its own `:not([tabindex="-1"])`, not one trailing term - CSS
+ * would otherwise bind it to the last selector only. That exclusion is what keeps
+ * the filmstrip's inactive thumbnails (roving tabindex: all `-1` but the active
+ * one) out of the result, so `onTrapFocus` re-running this on every Tab keypress
+ * materialises a handful of nodes rather than a 500-photo album's worth.
+ */
+const FOCUSABLE_SELECTOR = ['button', '[href]', 'input', 'select', 'textarea', '[tabindex]']
+  .map((selector) => `${selector}:not([tabindex="-1"])`)
+  .join(', ');
+
+/** Keep Tab inside the dialog while it is modal. */
+const onTrapFocus = (event: KeyboardEvent) => {
+  if (event.key !== 'Tab' || !dialogRef.value) {
+    return;
   }
-});
+
+  // A PrimeVue dialog stacked above the lightbox (Move/Delete/Rename, or the album's
+  // "Manage Tags"/"Travel Records" dialogs) owns focus while it is open - PrimeVue
+  // gives every modal Dialog its own focus trap via `v-focustrap`, so trapping here
+  // too would fight it for Tab.
+  if (hasNestedDialog()) {
+    return;
+  }
+
+  // Both checks catch something the selector cannot. A `<button disabled>` still
+  // reports `tabIndex === 0` (verified), so if one ever landed first or last here,
+  // `.focus()` would no-op and Tab would escape the modal. And `:not([tabindex="-1"])`
+  // matches only that exact string, so `tabIndex >= 0` is what excludes any other
+  // negative value. Neither case exists today; both are cheap insurance on a list
+  // the selector has already cut to a handful of elements.
+  const focusable = Array.from(
+    dialogRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter((element) => element.tabIndex >= 0 && !element.hasAttribute('disabled'));
+  if (focusable.length === 0) {
+    return;
+  }
+  const first = focusable[0] as HTMLElement;
+  const last = focusable[focusable.length - 1] as HTMLElement;
+  const active = document.activeElement;
+
+  // Focus outside the dialog (including the container itself on open) must be pulled
+  // back in, or Tab silently escapes to the grid behind an aria-modal overlay.
+  if (!dialogRef.value.contains(active) || active === dialogRef.value) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+    return;
+  }
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+};
 
 onMounted(() => {
-  updateContainerDimensions();
-  globalThis.addEventListener('resize', updateContainerDimensions);
+  previouslyFocused = document.activeElement as HTMLElement | null;
+  document.body.classList.add('overflow-hidden');
   globalThis.addEventListener('keydown', onHandleKeydown);
+  globalThis.addEventListener('keydown', onTrapFocus);
+  dialogRef.value?.focus();
 });
 
 onUnmounted(() => {
-  globalThis.removeEventListener('resize', updateContainerDimensions);
+  document.body.classList.remove('overflow-hidden');
   globalThis.removeEventListener('keydown', onHandleKeydown);
+  globalThis.removeEventListener('keydown', onTrapFocus);
+  previouslyFocused?.focus();
 });
 
 // When photo id changes, verify if it exists first
@@ -496,16 +476,37 @@ watch(
 // If photo exists based on URL, get EXIF data from photo
 watch(
   selectedImage,
-  async (newValue) => {
+  async (newValue, _oldValue, onCleanup) => {
     if (newValue?.key) {
       // Remove album id for displaying photo file name
-      photoFileName.value = newValue.key.split('/')[1] || '';
+      photoFileName.value = getPhotoFileName(newValue.key);
       naturalWidth.value = 0;
       naturalHeight.value = 0;
       loadImage.value = true;
+
+      // Rapid navigation (held arrow keys, or the filmstrip) can re-fire this
+      // watcher before an earlier `ExifReader.load` settles. Without this guard the
+      // last response to resolve wins rather than the photo actually on screen, so
+      // `exifTags` - and the date/camera/map and `isPanoramaPhoto` it drives -
+      // could describe a different photo. `onCleanup` runs just before the next
+      // fire (or on unmount), so a late response is discarded instead of applied.
+      let stale = false;
+      onCleanup(() => {
+        stale = true;
+      });
+
       try {
-        // Read EXIF data
-        exifTags.value = (await ExifReader.load(newValue.url)) as ExifData;
+        // Must stay `sharedPhotoUrl` - the same builder as the `<img>` `src` and
+        // `PanoramaViewer`'s `imageUrl` above, or this becomes a second cache key
+        // and a second full download. See its doc comment in `photo-url.ts`.
+        const tags = (await ExifReader.load(sharedPhotoUrl(newValue.url))) as ExifData;
+        // Only the `exifTags` write is guarded. `loadImage` must reset
+        // unconditionally in `finally`: the image loads independently of EXIF, and
+        // returning early past it wedged the spinner on screen forever whenever a
+        // later run skipped its body entirely (`selectedImage` becoming `undefined`
+        // on the `?photo=` not-found path).
+        if (stale) return;
+        exifTags.value = tags;
       } catch (error) {
         console.error(error);
       } finally {

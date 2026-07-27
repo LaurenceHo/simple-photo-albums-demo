@@ -58,14 +58,14 @@ jobs:
           RAPIDAPI_KEY: 'RAPIDAPI_KEY'
         run: |
           cd "$GITHUB_WORKSPACE/server"
-          echo $R2_ACCESS_KEY | npx wrangler versions secret put R2_ACCESS_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $R2_SECRET_KEY | npx wrangler versions secret put R2_SECRET_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "VITE_GOOGLE_CLIENT_ID" | npx wrangler versions secret put VITE_GOOGLE_CLIENT_ID --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "GOOGLE_PLACES_API_KEY" | npx wrangler versions secret put GOOGLE_PLACES_API_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "JWT_SECRET" | npx wrangler versions secret put JWT_SECRET --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "RAPIDAPI_KEY" | npx wrangler versions secret put RAPIDAPI_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo $R2_ACCESS_KEY | bunx wrangler versions secret put R2_ACCESS_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo $R2_SECRET_KEY | bunx wrangler versions secret put R2_SECRET_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo "VITE_GOOGLE_CLIENT_ID" | bunx wrangler versions secret put VITE_GOOGLE_CLIENT_ID --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo "GOOGLE_PLACES_API_KEY" | bunx wrangler versions secret put GOOGLE_PLACES_API_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo "JWT_SECRET" | bunx wrangler versions secret put JWT_SECRET --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          echo "RAPIDAPI_KEY" | bunx wrangler versions secret put RAPIDAPI_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
 
       - name: Deploy Cloudflare Worker
         run: |
           cd "$GITHUB_WORKSPACE/server"
-          npx wrangler deploy --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          bunx wrangler deploy --name "$D1_PHOTO_ALBUMS_WORKER" --env=""

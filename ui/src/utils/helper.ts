@@ -44,6 +44,28 @@ export const getStaticFileUrl = (objectKey: string): string => {
   return `${import.meta.env.VITE_STATIC_FILES_URL}/${objectKey}`;
 };
 
+/**
+ * Human-readable file size, KB below 1 MB and MB above. Returns `''` for a
+ * missing or zero byte count, e.g. before a photo's `size` metadata has loaded.
+ */
+export const formatFileSize = (bytes: number | undefined): string => {
+  if (!bytes) {
+    return '';
+  }
+  const kb = bytes / 1024;
+  return kb < 1024 ? `${kb.toFixed(2)} KB` : `${(kb / 1024).toFixed(2)} MB`;
+};
+
+/**
+ * File name with its extension removed, for use as an image's alt text - a
+ * screen reader gets "beach-sunset" rather than "beach-sunset.jpg". Falls
+ * back to `fallback` when the result would otherwise be empty (e.g. from a
+ * malformed key with no file name), since callers disagree on what to show
+ * in that case.
+ */
+export const stripExtension = (fileName: string, fallback: string): string =>
+  fileName.replace(/\.[^.]+$/, '') || fallback;
+
 export const fetchDbUpdatedTime = async (): Promise<DbUpdatedTime | null> => {
   try {
     const response = await fetch(getStaticFileUrl('updateDatabaseAt.json'));

@@ -1,5 +1,3 @@
-import { definePreset } from '@primevue/themes';
-import Aura from '@primevue/themes/aura';
 import { VueQueryPlugin } from '@tanstack/vue-query';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { createPinia } from 'pinia';
@@ -9,7 +7,9 @@ import ToastService from 'primevue/toastservice';
 import Tooltip from 'primevue/tooltip';
 import { createApp } from 'vue';
 import App from './App.vue';
+import './assets/justified-grid.css';
 import './assets/primevue-override.css';
+import { primeVueOptions } from './primevue-config';
 import router from './router';
 
 declare global {
@@ -41,36 +41,7 @@ const prepareApp = async () => {
 const pinia = createPinia();
 const app = createApp(App);
 
-const myThemePreset = definePreset(Aura, {
-  semantic: {
-    primary: {
-      50: '{sky.50}',
-      100: '{sky.100}',
-      200: '{sky.200}',
-      300: '{sky.300}',
-      400: '{sky.400}',
-      500: '{sky.500}',
-      600: '{sky.600}',
-      700: '{sky.700}',
-      800: '{sky.800}',
-      900: '{sky.900}',
-      950: '{sky.950}',
-    },
-  },
-});
-
-app.use(PrimeVue, {
-  theme: {
-    preset: myThemePreset,
-    options: {
-      darkModeSelector: '.dark',
-      cssLayer: {
-        name: 'primevue',
-        order: 'theme, base, primevue',
-      },
-    },
-  },
-});
+app.use(PrimeVue, primeVueOptions);
 app.use(router);
 app.use(VueQueryPlugin);
 app.use(pinia);
