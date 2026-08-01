@@ -185,6 +185,69 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       expect(updateArg[1].updatedBy).toBe('System');
     });
 
+    // The cover sync used to spread the whole album row into the update. That made
+    // `tags` always present, so AlbumService.update deleted every album_tags_map row and
+    // re-inserted it - two separate statements, so a failure between them lost the tags,
+    // on an ordinary photo-list GET. It also rewrote every other column, including the
+    // primary key with its own value.
+    it('should send only the changed fields, not the whole album row', async () => {
+      mockAlbumResult = {
+        id: 'album-1',
+        albumName: 'NoCover',
+        isPrivate: false,
+        tags: ['keep-me'],
+        albumCover: '',
+        place: { displayName: 'Somewhere' },
+        createdAt: '2020-01-01T00:00:00.000Z',
+        createdBy: 'someone@example.com',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedBy: 'someone@example.com',
+      };
+      mockPhotos = [
+        { key: 'album-1/photo1.jpg', url: '/photo1.jpg', size: 100, lastModified: '2024-01-01' },
+      ];
+
+      await app.request('/api/photos/2024/album-1', {}, env);
+
+      const [, payload] = mockUpdateCalls[0] as [string, Record<string, unknown>];
+
+      // `tags` absent is what makes AlbumService.update leave the tag rows alone.
+      expect(payload).not.toHaveProperty('tags');
+      // `id` is the WHERE key, not a SET field.
+      expect(payload).not.toHaveProperty('id');
+      // Untouched columns must not be rewritten.
+      for (const key of ['albumName', 'isPrivate', 'place', 'createdAt', 'createdBy']) {
+        expect(payload).not.toHaveProperty(key);
+      }
+      expect(Object.keys(payload).sort()).toEqual(['albumCover', 'updatedAt', 'updatedBy']);
+    });
+
+    it('should refresh updatedAt rather than carrying the stored value forward', async () => {
+      const staleTimestamp = '2020-01-01T00:00:00.000Z';
+      mockAlbumResult = {
+        id: 'album-1',
+        albumName: 'NoCover',
+        isPrivate: false,
+        tags: [],
+        albumCover: '',
+        updatedAt: staleTimestamp,
+        updatedBy: 'someone@example.com',
+      };
+      mockPhotos = [
+        { key: 'album-1/photo1.jpg', url: '/photo1.jpg', size: 100, lastModified: '2024-01-01' },
+      ];
+
+      await app.request('/api/photos/2024/album-1', {}, env);
+
+      const [, payload] = mockUpdateCalls[0] as [string, Record<string, unknown>];
+
+      // Previously updatedBy became 'System' while updatedAt kept the stale value, so the
+      // two fields disagreed about when the row last changed.
+      expect(payload.updatedBy).toBe('System');
+      expect(payload.updatedAt).not.toBe(staleTimestamp);
+      expect(Date.parse(payload.updatedAt as string)).not.toBeNaN();
+    });
+
     it('should clear album cover when no photos but album has cover', async () => {
       mockAlbumResult = {
         id: 'album-2',

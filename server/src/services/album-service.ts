@@ -71,7 +71,13 @@ export default class AlbumService extends D1Service<Album> {
     }
   }
 
-  override async update(id: string, item: Album): Promise<any> {
+  /**
+   * `Partial<Album>` rather than `Album`, so a caller changing one column can pass only
+   * that column. `D1Service.update` skips undefined keys, and the `tags !== undefined`
+   * guard below means an omitted `tags` leaves the album's tag rows untouched instead of
+   * deleting and re-inserting them.
+   */
+  override async update(id: string, item: Partial<Album>): Promise<any> {
     const tags = item.tags;
     const album = { ...item };
     delete album.tags;

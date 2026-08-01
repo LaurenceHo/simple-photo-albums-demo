@@ -99,19 +99,27 @@ export default class PhotoController extends BaseController {
     const hasPhotos = !isEmpty(photos);
     const hasCover = !isEmpty(album.albumCover);
 
-    if (hasPhotos && !hasCover) {
-      await albumService.update(album.id, {
-        ...album,
-        albumCover: photos[0]?.key || '',
-        updatedBy: 'System',
-      });
-    } else if (!hasPhotos && hasCover) {
-      await albumService.update(album.id, {
-        ...album,
-        albumCover: '',
-        updatedBy: 'System',
-      });
+    // Nothing to do unless the two disagree: photos but no cover means adopt one, cover
+    // but no photos means clear it.
+    if (hasPhotos === hasCover) {
+      return;
     }
+
+    // Only the fields that actually change. Spreading the whole `album` row here meant:
+    //
+    // - `tags` was always present, so `AlbumService.update` ran `DELETE FROM
+    //   album_tags_map` and re-inserted every tag. The delete and the re-insert are
+    //   separate statements, not one transaction, so a failure in between dropped the
+    //   album's tags - on an ordinary photo-list GET.
+    // - `updatedAt` was carried over from the row while `updatedBy` was set to 'System',
+    //   leaving the two fields disagreeing about when the row last changed.
+    // - every column was rewritten, including `id` (the primary key, with its own value)
+    //   and `place` (re-serialised through a JSON parse/stringify round trip).
+    await albumService.update(album.id, {
+      albumCover: hasPhotos ? (photos[0]?.key || '') : '',
+      updatedBy: 'System',
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   create = async (c: Context<HonoEnv>) => {
