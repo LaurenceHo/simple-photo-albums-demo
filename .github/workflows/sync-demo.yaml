@@ -26,8 +26,8 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # The push to the mirror authenticates with a deploy key, so GITHUB_TOKEN needs
-    # nothing beyond reading this repo.
+    # The push to the mirror authenticates with its own scoped token, so GITHUB_TOKEN
+    # needs nothing beyond reading this repo.
     permissions:
       contents: read
     steps:
@@ -150,40 +150,46 @@ jobs:
 
       - name: Push to demo repo
         env:
-          # Deploy key with write access on the demo repo only - narrower than a personal
-          # access token, which would reach every repo on the account.
-          SSH_KEY: ${{ secrets.DEMO_REPO_SSH_KEY }}
+          # A fine-grained PAT, not a deploy key.
+          #
+          # A deploy key would be the narrower credential and was the first choice, but
+          # GitHub refuses any push from one that creates or updates a file under
+          # `.github/workflows/`:
+          #   "refusing to allow an OAuth App to create or update workflow ... without
+          #    `workflow` scope"
+          # That is a platform rule with no configuration behind it, and this repo's history
+          # is full of workflow files, so a deploy key can never mirror it.
+          #
+          # The fine-grained token is scoped to the demo repository alone, with Contents and
+          # Workflows write and nothing else - close to a deploy key in blast radius, unlike
+          # a classic PAT which would reach every repo on the account. It does expire; see
+          # README for the renewal note.
+          TOKEN: ${{ secrets.DEMO_REPO_TOKEN }}
         run: |
-          if [ -z "$SSH_KEY" ]; then
-            echo "::error::DEMO_REPO_SSH_KEY is not set." >&2
-            exit 1
-          fi
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          # umask, not a later chmod: the key must never exist as world-readable, even
-          # briefly. `tr -d '\r'` for the same reason as the pattern list - a key pasted
-          # through the web textarea arrives CRLF and openssl rejects it with an opaque
-          # "invalid format".
-          (umask 077; printf '%s\n' "$SSH_KEY" | tr -d '\r' >~/.ssh/id_ed25519)
-
-          # `|| rc=$?` rather than a bare call: under errexit a failed keyscan would kill
-          # the step here, and the explanatory error below would never print.
-          rc=0
-          ssh-keyscan -t ed25519 github.com >>~/.ssh/known_hosts || rc=$?
-          if [ "$rc" -ne 0 ] || [ ! -s ~/.ssh/known_hosts ]; then
-            echo "::error::ssh-keyscan produced no host key (exit $rc); refusing to push." >&2
+          if [ -z "$TOKEN" ]; then
+            echo "::error::DEMO_REPO_TOKEN is not set." >&2
             exit 1
           fi
 
-          git remote add demo git@github.com:LaurenceHo/simple-photo-albums-demo.git
-          # No --force. master only ever moves forward, so a diverged mirror is a signal
-          # that something is wrong - it should fail loudly, not be overwritten.
+          # The token goes in the remote URL. It is a registered secret, so Actions redacts
+          # it from the log even when git echoes the URL back in an error.
+          git remote add demo \
+            "https://x-access-token:${TOKEN}@github.com/LaurenceHo/simple-photo-albums-demo.git"
+
+          # `main`, not `master`: that is the demo repo's default branch, so visitors land on
+          # the mirrored code instead of an unborn default.
+          #
+          # No --force. master only ever moves forward, so a diverged mirror is a signal that
+          # something is wrong - it should fail loudly, not be overwritten.
           #
           # `push.followTags=false` explicitly, even though it is the default. Tags are the
           # one thing that must never be pushed here: `backup/pre-purge` on origin points at
           # the pre-rewrite history, which still contains the identifiers this whole exercise
           # removed. `fetch-depth: 0` means the runner has those objects. Never add --tags,
           # --follow-tags or --mirror to this command.
-          if ! git -c push.followTags=false push demo HEAD:refs/heads/master; then
-            echo "::error::Push rejected. If master's history was rewritten, the mirror must be force-pushed once by hand - see README, 'If the sync starts failing'." >&2
+          rc=0
+          git -c push.followTags=false push demo HEAD:refs/heads/main || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Push rejected (exit $rc). If master's history was rewritten, the mirror must be force-pushed once by hand - see README, 'If the sync starts failing'." >&2
             exit 1
           fi

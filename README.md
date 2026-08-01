@@ -124,15 +124,25 @@ private identifiers, and the workflow re-verifies that on every run rather than 
    "create repository" flow adds a README, which gives the mirror an unrelated root commit and
    makes the un-forced push fail as a non-fast-forward.
 
-2. **Generate a deploy key.** A deploy key is scoped to a single repository; a personal access
-   token would grant write access to every repo on the account, which this job does not need.
+   This repo's `master` is pushed to the demo repo's `main`, so the mirrored code lands on the
+   default branch and visitors see it immediately rather than an unborn default.
 
-   ```bash
-   ssh-keygen -t ed25519 -C "sync-to-demo" -f ./demo-sync-key -N ""
-   ```
+2. **Create a fine-grained personal access token**, under Settings → Developer settings →
+   Personal access tokens → Fine-grained tokens:
 
-   Add `demo-sync-key.pub` to the demo repo under Settings → Deploy keys with **Allow write
-   access** ticked.
+   - **Resource owner:** your account
+   - **Repository access:** *Only select repositories* → the demo repo, and nothing else
+   - **Permissions:** Contents → *Read and write*, Workflows → *Read and write*
+
+   A deploy key would be narrower and was the original choice, but **GitHub refuses any push
+   from a deploy key that creates or updates a file under `.github/workflows/`** — a platform
+   rule with no setting behind it. This repo's history is full of workflow files, so a deploy
+   key can never mirror it. The fine-grained token scoped to one repository is the next
+   narrowest thing; a *classic* PAT would reach every repo on the account and should not be
+   used here.
+
+   Fine-grained tokens expire. Note the date — when it lapses the sync fails with a `403`,
+   and the fix is to regenerate and update the secret.
 
 3. **Add two repository secrets here**, under Settings → Secrets and variables → Actions →
    *Repository secrets*. Not environment secrets: this job declares no `environment:`, so
@@ -140,17 +150,16 @@ private identifiers, and the workflow re-verifies that on every run rather than 
 
    | Secret | Value |
    | --- | --- |
-   | `DEMO_REPO_SSH_KEY` | contents of `demo-sync-key` (the private half) |
+   | `DEMO_REPO_TOKEN` | the fine-grained token from step 2 |
    | `PRIVATE_STRING_PATTERNS` | contents of your local `.private-strings` |
 
    ```bash
-   gh secret set DEMO_REPO_SSH_KEY < ./demo-sync-key
+   gh secret set DEMO_REPO_TOKEN            # paste when prompted
    gh secret set PRIVATE_STRING_PATTERNS < .private-strings
    ```
 
-   **Now delete `demo-sync-key` and `demo-sync-key.pub`** — not before this step, which needs
-   the private half. **Keep `.private-strings`**: it is gitignored, and the pre-commit hook
-   silently does nothing without it.
+   **Keep `.private-strings`** — it is gitignored, and the pre-commit hook silently does
+   nothing without it.
 
    `.private-strings` can be pasted whole; the workflow strips comments and blank lines. That
    filtering is load-bearing rather than tidy-minded: a blank line in a `grep -f` pattern file
