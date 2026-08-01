@@ -89,6 +89,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'admin', email: 'test@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => await next()),
   };

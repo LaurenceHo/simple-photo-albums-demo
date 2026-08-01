@@ -60,8 +60,13 @@
       </div>
     </div>
     <div v-if="isAdmin" class="flex items-center py-4">
-      Only show private album
-      <ToggleSwitch v-model="privateOnly" class="ml-2" data-test-id="album-private-toggle" />
+      <label for="filter-unlisted-only">Only show unlisted albums</label>
+      <ToggleSwitch
+        v-model="unlistedOnly"
+        class="ml-2"
+        data-test-id="album-unlisted-toggle"
+        input-id="filter-unlisted-only"
+      />
     </div>
 
     <template v-if="chunkAlbumList.length > 0">
@@ -138,9 +143,9 @@ const pageNumber = ref(1);
 const itemsPerPage = ref(20);
 
 const sortOrder = computed(() => filterState.value.sortOrder);
-const privateOnly = computed({
-  get: () => filterState.value.privateOnly,
-  set: (value: boolean) => albumStore.setPrivateOnly(value),
+const unlistedOnly = computed({
+  get: () => filterState.value.unlistedOnly,
+  set: (value: boolean) => albumStore.setUnlistedOnly(value),
 });
 
 const paramsYear = computed(() => route.params['year'] as string);

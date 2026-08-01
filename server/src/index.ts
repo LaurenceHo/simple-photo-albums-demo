@@ -16,7 +16,9 @@ import albumRoute from './routes/album-route';
 import albumTagsRoute from './routes/album-tag-route';
 import authRoute from './routes/auth-route';
 import locationRoute from './routes/location-route';
+import { verifyOrigin } from './routes/auth-middleware';
 import photoRoute from './routes/photo-route';
+import { rateLimit } from './routes/rate-limit-middleware';
 import travelRecordRoute from './routes/travel-record-route';
 
 const app = new Hono<HonoEnv>();
@@ -45,6 +47,14 @@ app.use('*', async (c, next) => {
   });
   return corsMiddleware(c, next);
 });
+
+// CSRF: must run after CORS (so preflights are answered) but before any route handler.
+app.use('*', verifyOrigin);
+
+// Spend control on every route. Applied globally rather than only to public endpoints:
+// admin routes trigger R2 writes and Places/AeroDataBox calls, which are the expensive
+// ones, and a leaked session should not be able to run up an unbounded bill either.
+app.use('*', rateLimit);
 
 // Routes
 app.route('/', aggregateRoute);

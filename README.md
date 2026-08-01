@@ -70,7 +70,28 @@ If you change R2 bucket name, don't forget to update the configuration in ImageK
 
 ### Mapbox API key
 
-This project uses Mapbox to display the [map](https://dqhkiwysc6ltq.cloudfront.net/map/albums). You can get your own Mapbox API key [here](https://account.mapbox.com/auth/signup/). Once you have your own Mapbox API key, replace this property `VITE_MAPBOX_API_KEY` with your real information in `.env.example` and modify file name to `.env`.
+This project uses Mapbox to display the [map](https://simple-photo-albums.pages.dev/map/albums). You can get your own Mapbox API key [here](https://account.mapbox.com/auth/signup/). Once you have your own Mapbox API key, replace this property `VITE_MAPBOX_API_KEY` with your real information in `.env.example` and modify file name to `.env`.
+
+Use a **public** token (`pk.*`) and add a URL restriction for your own domain in the Mapbox
+dashboard — see the note below on why. A secret token (`sk.*`) must never be used here.
+
+### `VITE_*` variables are public
+
+Vite inlines every `VITE_`-prefixed variable into the client bundle at build time, so all of them
+are readable by anyone who loads the site. Storing them as GitHub *secrets* does not change that.
+This is fine for the ones that are public by design, but it means:
+
+- `VITE_MAPBOX_API_KEY` — **billable**. Must be a public `pk.*` token with URL restrictions set in
+  the Mapbox dashboard, or anyone can spend your quota.
+- `VITE_GOOGLE_CLIENT_ID` — public by design for Google Identity Services. Restrict "Authorized
+  JavaScript origins" to your own domain.
+- `VITE_GTAG_ID`, `VITE_IMAGEKIT_CDN_URL`, `VITE_WORKER_API_URL`, `VITE_STATIC_FILES_URL` — public
+  identifiers, no action needed.
+
+Anything that must stay confidential belongs in the Worker as a `wrangler secret` and must **not**
+carry a `VITE_` prefix: `JWT_SECRET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `GOOGLE_PLACES_API_KEY`,
+`RAPIDAPI_KEY`. (`VITE_GOOGLE_CLIENT_ID` is also uploaded as a Worker secret because the Worker
+needs it as the token `audience` — the name is misleading, but the value is not confidential.)
 
 ### Google OAuth 2.0 client ID
 

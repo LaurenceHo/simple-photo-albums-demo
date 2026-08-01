@@ -13,7 +13,9 @@ app.get('/api/auth/csrf', async (c) => {
   setCookie(c, 'csrf_state', state, {
     httpOnly: true,
     secure: true,
-    sameSite: 'None', // FIXME: Change to 'Strict' when development is done
+    // Must match the auth cookie's policy - see AUTH_COOKIE_SAME_SITE in
+    // auth-middleware.ts for why this is 'Lax' rather than 'None' or 'Strict'.
+    sameSite: 'Lax',
     path: '/',
     maxAge: 300,
   });

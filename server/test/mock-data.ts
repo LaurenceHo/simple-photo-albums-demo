@@ -3,7 +3,7 @@ import { signJwt } from '../src/utils/jwt.js';
 export const mockAlbumList = [
   {
     albumCover: 'demo-album2/batch_bird-8360220.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     place: {
       displayName: 'Honolulu',
       formattedAddress: 'Honolulu, HI, USA',
@@ -16,7 +16,7 @@ export const mockAlbumList = [
   },
   {
     albumCover: 'demo-album1/batch_berlin-8429780.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     place: {
       displayName: 'Museum of New Zealand Te Papa Tongarewa',
       formattedAddress: '55 Cable Street, Te Aro, Wellington 6011, New Zealand',
@@ -29,7 +29,7 @@ export const mockAlbumList = [
   },
   {
     albumCover: '',
-    isPrivate: true,
+    isUnlisted: true,
     place: {
       displayName: 'Sydney',
       formattedAddress: 'Sydney NSW, Australia',
@@ -42,7 +42,7 @@ export const mockAlbumList = [
   },
   {
     albumCover: 'demo-album3/batch_elks-8430545.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     place: {
       displayName: 'George Town',
       formattedAddress: 'George Town, Penang, Malaysia',

@@ -1,0 +1,51 @@
+#!/usr/bin/env sh
+#
+# Block commits containing private infrastructure identifiers.
+#
+# This repository is public, so real domains, bucket names, worker names and account IDs
+# must never be committed - not in source, not in docs, not in code comments.
+#
+# The patterns live in `.private-strings`, which is gitignored on purpose: if the list of
+# forbidden values were committed, the hook would leak exactly what it exists to protect.
+# Copy `.private-strings.example` to `.private-strings` and fill in your own values.
+#
+# With no `.private-strings` present the hook is a no-op, so a fresh clone or CI checkout
+# is never blocked by a file it cannot have.
+
+PATTERNS_FILE=".private-strings"
+[ -f "$PATTERNS_FILE" ] || exit 0
+
+# Added lines only. Removing a leaked string must stay possible, so the deleted side of
+# the diff is not checked. The `+++ b/path` header survives this filter deliberately: a
+# filename containing a private identifier should be caught too.
+ADDED=$(git diff --cached --diff-filter=ACMR -U0 | sed -n 's/^+//p')
+[ -n "$ADDED" ] || exit 0
+
+HIT=0
+while IFS= read -r pattern || [ -n "$pattern" ]; do
+  # Skip blank lines and comments.
+  case "$pattern" in '' | \#*) continue ;; esac
+
+  if printf '%s\n' "$ADDED" | grep -q -i -E -- "$pattern"; then
+    # Print a prefix only. Echoing the whole pattern would put the value into terminal
+    # scrollback and CI logs.
+    echo "  matched forbidden pattern starting: $(printf '%s' "$pattern" | cut -c1-4)..." >&2
+    HIT=1
+  fi
+done <"$PATTERNS_FILE"
+
+if [ "$HIT" -ne 0 ]; then
+  cat >&2 <<'MSG'
+
+Commit blocked: staged changes contain a private infrastructure identifier.
+
+This repository is public. Replace the value with a placeholder before committing -
+`example.com`, `<prod-bucket>`, `<db-name>`, `<worker-name>`. Real values belong in
+GitHub environment secrets and in `wrangler.toml`, which is gitignored.
+
+If this is a false positive:
+  git commit --no-verify
+
+MSG
+  exit 1
+fi

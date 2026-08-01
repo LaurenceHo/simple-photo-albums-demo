@@ -1,7 +1,11 @@
 import { Context } from 'hono';
-import { HonoEnv } from '../env';
+import { HonoEnv, ValidatedJsonContext } from '../env';
 import FlightService, { FlightNotFoundError } from '../services/flight-service';
 import TravelRecordService from '../services/travel-record-service';
+import {
+  CreateTravelRecordRequest,
+  UpdateTravelRecordRequest,
+} from '../types/request-schemas';
 import { TravelRecord } from '../types/travel-record';
 import { UserPermission } from '../types/user-permission';
 import { haversineDistance, isValidCoordination } from '../utils/helpers';
@@ -19,8 +23,8 @@ export default class TravelRecordController extends BaseController {
     }
   };
 
-  create = async (c: Context<HonoEnv>) => {
-    const body = await c.req.json<TravelRecord>();
+  create = async (c: ValidatedJsonContext<CreateTravelRecordRequest>) => {
+    const body = c.req.valid('json');
     const user = c.get('user') as UserPermission;
     const userEmail = user?.email ?? 'unknown';
     const travelRecordService = new TravelRecordService(c.env.DB);
@@ -102,8 +106,8 @@ export default class TravelRecordController extends BaseController {
     }
   };
 
-  update = async (c: Context<HonoEnv>) => {
-    const body = await c.req.json<TravelRecord>();
+  update = async (c: ValidatedJsonContext<UpdateTravelRecordRequest>) => {
+    const body = c.req.valid('json');
     const user = c.get('user') as UserPermission;
     const userEmail = user?.email ?? 'unknown';
     const travelRecordService = new TravelRecordService(c.env.DB);
@@ -112,13 +116,14 @@ export default class TravelRecordController extends BaseController {
     if (!id) {
       return this.clientError(c, 'Record ID is required for update');
     }
-    const payload: any = { ...body };
-    delete payload.id;
-    delete payload.createdAt;
-    delete payload.createdBy;
-
-    payload.updatedBy = userEmail;
-    payload.updatedAt = new Date().toISOString();
+    // `id` is the WHERE key, not a SET field. createdAt/createdBy are already absent
+    // from the schema, so only `id` needs removing here.
+    const { id: _id, ...rest } = body;
+    const payload: Partial<TravelRecord> = {
+      ...rest,
+      updatedBy: userEmail,
+      updatedAt: new Date().toISOString(),
+    };
 
     try {
       await travelRecordService.update(id, payload);

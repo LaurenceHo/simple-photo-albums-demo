@@ -65,8 +65,10 @@ describe('PhotoService', () => {
 
       await PhotoService.uploadPhotos(file, albumId);
 
+      // POST: minting a presigned upload credential must not use a safe method, which
+      // the server's verifyOrigin CSRF check exempts.
       expect(BaseApiRequestService.perform).toHaveBeenCalledWith(
-        'GET',
+        'POST',
         `${ApiBaseUrl}/photos/upload/${albumId}?filename=${file.name}&mimeType=${encodeURIComponent(
           file.type,
         )}`,
@@ -88,7 +90,7 @@ describe('PhotoService', () => {
 
       const params = new URLSearchParams({ filename: file.name, mimeType: file.type });
       expect(BaseApiRequestService.perform).toHaveBeenCalledWith(
-        'GET',
+        'POST',
         `${ApiBaseUrl}/photos/upload/${albumId}?${params.toString()}`,
       );
     });

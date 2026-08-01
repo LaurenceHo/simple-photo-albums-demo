@@ -19,7 +19,8 @@ jobs:
       D1_PHOTO_ALBUMS_WORKER: ${{ secrets.D1_PHOTO_ALBUMS_WORKER }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Used by envsubst in Configure Wrangler
+      # Used by envsubst in Configure Wrangler. These resolve against the `prod`
+      # environment declared above, so they carry production values.
       ALBUM_URL: ${{ secrets.ALBUM_URL }}
       VITE_IMAGEKIT_CDN_URL: ${{ secrets.VITE_IMAGEKIT_CDN_URL }}
       R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
@@ -43,6 +44,15 @@ jobs:
       - name: Configure Wrangler
         run: |
           cd "$GITHUB_WORKSPACE/server"
+          # An unset secret substitutes to an empty string, which would deploy a Worker
+          # bound to a nameless bucket or an empty CORS origin. Fail before that happens.
+          for required in R2_BUCKET_NAME ALBUM_URL VITE_IMAGEKIT_CDN_URL \
+                          PROD_PHOTO_ALBUMS_DB_NAME PROD_PHOTO_ALBUMS_DB_ID; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is not set on the 'prod' environment." >&2
+              exit 1
+            fi
+          done
           envsubst < wrangler.ci.toml > wrangler.tmp.toml
           mv wrangler.tmp.toml wrangler.toml
 
@@ -56,12 +66,26 @@ jobs:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: |
           cd "$GITHUB_WORKSPACE/server"
-          echo $R2_ACCESS_KEY | bunx wrangler versions secret put R2_ACCESS_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $R2_SECRET_KEY | bunx wrangler versions secret put R2_SECRET_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $VITE_GOOGLE_CLIENT_ID | bunx wrangler versions secret put VITE_GOOGLE_CLIENT_ID --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $GOOGLE_PLACES_API_KEY | bunx wrangler versions secret put GOOGLE_PLACES_API_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $JWT_SECRET | bunx wrangler versions secret put JWT_SECRET --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $RAPIDAPI_KEY | bunx wrangler versions secret put RAPIDAPI_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          # An empty value here deploys a Worker that cannot sign sessions or reach R2,
+          # which fails at request time rather than at deploy time.
+          for required in JWT_SECRET R2_ACCESS_KEY R2_SECRET_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is not set on the 'prod' environment. Refusing to deploy." >&2
+              exit 1
+            fi
+          done
+          # printf '%s' rather than echo: echo appends a trailing newline that would be
+          # stored as part of the secret value. Quoting prevents word splitting on
+          # values containing whitespace or shell metacharacters.
+          put_secret() {
+            printf '%s' "$2" | bunx wrangler versions secret put "$1" --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          }
+          put_secret R2_ACCESS_KEY "$R2_ACCESS_KEY"
+          put_secret R2_SECRET_KEY "$R2_SECRET_KEY"
+          put_secret VITE_GOOGLE_CLIENT_ID "$VITE_GOOGLE_CLIENT_ID"
+          put_secret GOOGLE_PLACES_API_KEY "$GOOGLE_PLACES_API_KEY"
+          put_secret JWT_SECRET "$JWT_SECRET"
+          put_secret RAPIDAPI_KEY "$RAPIDAPI_KEY"
 
       - name: Deploy Cloudflare Worker
         run: |

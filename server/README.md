@@ -56,7 +56,13 @@ bun install
 
    `DEVELOPMENT=true` is required for local development: the worker only adds
    `http://localhost:9000` to its allowed CORS origins when this flag is set. Without it, the UI
-   dev server's requests are rejected.
+   dev server's requests are rejected. The same flag drives `verifyOrigin`, the CSRF check on
+   state-changing requests, so an unset flag also rejects local POST/PUT/DELETE calls.
+
+   `JWT_SECRET` must be a real, random, high-entropy value in **every** environment, including
+   demo/preview. It is the HS256 signing key for the session cookie: anyone who knows it can forge
+   an admin session. Generate one with `openssl rand -hex 32`, and never reuse the production value
+   elsewhere.
 
 2. Update `wrangler.toml` with your configuration (non-secret values):
    ```toml
@@ -66,6 +72,33 @@ bun install
    VITE_IMAGEKIT_CDN_URL = "your-imagekit-url"
    ALBUM_URL = "http://localhost:5173"
    ```
+
+   `wrangler.toml` is gitignored, so it does not carry over between machines. It also needs the
+   rate-limiting binding, in the default block and under `[env.production]` — copy it from
+   `wrangler.ci.toml`:
+
+   ```toml
+   # Default (dev) block
+   [[unsafe.bindings]]
+   name = "RATE_LIMITER"
+   type = "ratelimit"
+   namespace_id = "1001"
+   simple = { limit = 300, period = 60 }
+
+   # Under [env.production] — note the different namespace_id
+   [[env.production.unsafe.bindings]]
+   name = "RATE_LIMITER"
+   type = "ratelimit"
+   namespace_id = "1002"
+   simple = { limit = 300, period = 60 }
+   ```
+
+   The two `namespace_id` values must differ. Cloudflare shares counters across bindings using the
+   same namespace in one account, so reusing an id would give an IP hitting both Workers 300 req/60s
+   combined instead of 300 against each.
+
+   The middleware fails open when the binding is missing, so local dev still works without it —
+   you just get no rate limiting.
 
 ### Database Migration
 
@@ -88,6 +121,35 @@ wrangler d1 execute photo-albums-db --local --file=./migrations/0001_add_flight_
 # For production
 wrangler d1 execute photo-albums-db --remote --file=./migrations/0001_add_flight_columns.sql
 ```
+
+`0002` removes the placeholder admin row that `0000` seeds. Optional — no code reads that row, and it
+is not reachable as a login (its `uid` would have to be issued by Google) — but a stray `admin` row
+is worth clearing out:
+
+```bash
+# For local development
+wrangler d1 execute photo-albums-db --local --file=./migrations/0002_remove_seed_admin_user.sql
+
+# For production
+wrangler d1 execute photo-albums-db --remote --file=./migrations/0002_remove_seed_admin_user.sql
+```
+
+`0003` renames `isPrivate` to `isUnlisted`:
+
+```bash
+# For local development
+wrangler d1 execute photo-albums-db --local --file=./migrations/0003_rename_is_private_to_is_unlisted.sql
+
+# For production
+wrangler d1 execute photo-albums-db --remote --file=./migrations/0003_rename_is_private_to_is_unlisted.sql
+```
+
+> **`0003` is the one migration whose timing matters.** The code queries `isUnlisted` while the
+> column is still `isPrivate` until this runs, so the anonymous album and aggregate queries fail in
+> the gap between deploying and migrating. There is a window either way, so close it deliberately:
+> merge, watch the Actions run, and apply the migration the moment the deploy step completes. That
+> order leaves a single `ALTER TABLE` — far more reliable than a CI deploy — as the step that closes
+> the window. `0003` carries the rollback statement in a comment.
 
 ## Local development
 
@@ -125,6 +187,33 @@ There is deliberately no hand-deploy command documented here. The local `wrangle
 `D1_PHOTO_ALBUMS_WORKER` secret and passes explicitly as `--name`. A manual deploy must pass that
 same `--name` value, or it will silently create/update the wrong worker.
 
+### Environment-scoped GitHub secrets
+
+Both workflows declare a GitHub `environment` (`prod` and `dev`), so identically-named secrets
+resolve to different values per environment. `wrangler.ci.toml` therefore uses the *same*
+unprefixed `${R2_BUCKET_NAME}` / `${ALBUM_URL}` / `${VITE_IMAGEKIT_CDN_URL}` in its default block
+and under `[env.production]`. That looks like a dev/prod leak but is not: `wrangler deploy --env
+production` reads only `[env.production]`, the demo deploy (`--env=""`) reads only the default
+block, and the block that received the other environment's value is never consulted. **Do not
+"fix" this by prefixing the names** — it adds no safety and GitHub has no rename, only
+delete-and-recreate.
+
+Each environment needs its own values for:
+
+| Secret / variable | Notes |
+| --- | --- |
+| `R2_BUCKET_NAME` | `dev` must name a bucket separate from `prod` |
+| `ALBUM_URL` | UI origin; drives CORS **and** the `verifyOrigin` CSRF check, so a stale value 403s every mutation |
+| `VITE_IMAGEKIT_CDN_URL` | ImageKit endpoint (raw R2 bucket in dev) |
+| `JWT_SECRET` | Random and **unique per environment** — see the warning in Environment Variables above |
+| `DEV_PHOTO_ALBUMS_DB_NAME` / `_ID`, `PROD_PHOTO_ALBUMS_DB_NAME` / `_ID` | Already environment-prefixed, since both appear in the same rendered file |
+
+Each workflow's "Configure Wrangler" step fails fast if any required value is empty, rather than
+deploying a Worker bound to a nameless bucket or an empty CORS origin.
+
+`R2_ACCESS_KEY` / `R2_SECRET_KEY` are used by both environments. Scope them to the buckets they
+need in the Cloudflare R2 dashboard rather than granting account-wide object access.
+
 ## API endpoint list
 
 ### Authentication
@@ -152,7 +241,7 @@ same `--name` value, or it will silently create/update the wrong worker.
 - /api/photos - DELETE: Delete photos
 - /api/photos - PUT: Move photos to different folder
 - /api/photos/rename - PUT: Rename photo
-- /api/photos/upload/:albumId - POST: Upload photos to R2 bucket
+- /api/photos/upload/:albumId - POST: Mint a presigned R2 upload URL
 
 ### Travel Records
 

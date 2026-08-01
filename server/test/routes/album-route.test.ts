@@ -6,7 +6,7 @@ vi.mock('../../src/services/album-service', async () => {
   const mockAlbumList = [
     {
       albumCover: 'demo-album2/batch_bird-8360220.jpg',
-      isPrivate: false,
+      isUnlisted: false,
       place: {
         displayName: 'Honolulu',
         formattedAddress: 'Honolulu, HI, USA',
@@ -53,6 +53,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'admin', email: 'test@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => await next()),
   };
@@ -87,7 +90,7 @@ describe('album route', () => {
       data: [
         {
           albumCover: 'demo-album2/batch_bird-8360220.jpg',
-          isPrivate: false,
+          isUnlisted: false,
           place: {
             displayName: 'Honolulu',
             formattedAddress: 'Honolulu, HI, USA',
@@ -114,7 +117,7 @@ describe('album route', () => {
             albumCover: '',
             albumName: 'Test album',
             description: '',
-            isPrivate: true,
+            isUnlisted: true,
           } as Album),
           headers: { 'Content-Type': 'application/json' },
         },
@@ -147,7 +150,7 @@ describe('album route', () => {
             albumCover: '',
             albumName: 'Test album',
             description: '',
-            isPrivate: true,
+            isUnlisted: true,
           } as Album),
           headers: { 'Content-Type': 'application/json' },
         },

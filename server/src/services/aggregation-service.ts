@@ -6,39 +6,53 @@ export default class AggregationService extends D1Service<Album> {
     super(db, 'albums'); // Base table is albums
   }
 
-  async getAlbumsWithLocation(includePrivate: boolean): Promise<Album[]> {
+  async getAlbumsWithLocation(includeUnlisted: boolean): Promise<Album[]> {
     let sql = `
       SELECT *
       FROM albums
       WHERE place IS NOT NULL AND place != ''
     `;
 
-    if (!includePrivate) {
-      sql += ' AND isPrivate = 0';
+    if (!includeUnlisted) {
+      sql += ' AND isUnlisted = 0';
     }
 
     const { results } = await this.db.prepare(sql).all();
     return (results || []).map((item) => this.mapAlbum(item));
   }
 
-  async getFeaturedAlbums(): Promise<Album[]> {
-    const sql = `
+  /**
+   * Featured albums, for the landing page carousel.
+   *
+   * `includeUnlisted` is mandatory and must be threaded from the caller's admin
+   * state, exactly as in `getAlbumsWithLocation` and `getCountAlbumsByYear`. This
+   * endpoint is reachable anonymously (`optionalVerifyJwtClaim`), so omitting the
+   * filter publishes every unlisted album that happens to be featured - including
+   * its `place` coordinates and its `albumCover` R2 key.
+   */
+  async getFeaturedAlbums(includeUnlisted: boolean): Promise<Album[]> {
+    let sql = `
       SELECT *
       FROM albums
       WHERE isFeatured = 1
     `;
+
+    if (!includeUnlisted) {
+      sql += ' AND isUnlisted = 0';
+    }
+
     const { results } = await this.db.prepare(sql).all();
     return (results || []).map((item) => this.mapAlbum(item));
   }
 
-  async getCountAlbumsByYear(includePrivate: boolean): Promise<AlbumsByYear> {
+  async getCountAlbumsByYear(includeUnlisted: boolean): Promise<AlbumsByYear> {
     let sql = `
       SELECT year, COUNT(*) as count
       FROM albums
     `;
 
-    if (!includePrivate) {
-      sql += ' WHERE isPrivate = 0';
+    if (!includeUnlisted) {
+      sql += ' WHERE isUnlisted = 0';
     }
 
     sql += ' GROUP BY year ORDER BY year DESC';
@@ -71,8 +85,8 @@ export default class AggregationService extends D1Service<Album> {
     }
 
     // Convert booleans
-    if (item.isPrivate !== undefined) {
-      item.isPrivate = !!item.isPrivate;
+    if (item.isUnlisted !== undefined) {
+      item.isUnlisted = !!item.isUnlisted;
     }
     if (item.isFeatured !== undefined) {
       item.isFeatured = !!item.isFeatured;

@@ -3,11 +3,37 @@ main = "src/worker.ts"
 compatibility_date = "2025-10-20"
 compatibility_flags = ["nodejs_compat"]
 
-# Default (dev) binding
+# Default (dev/demo) binding.
+#
+# `${R2_BUCKET_NAME}`, `${VITE_IMAGEKIT_CDN_URL}` and `${ALBUM_URL}` appear in BOTH this
+# block and [env.production] below, deliberately reading the same unprefixed names.
+# That is not a dev/prod leak, and it should not be "fixed" by prefixing them:
+#
+# GitHub resolves a secret name against the environment the job declares, so a job with
+# `environment: prod` sees the production value and one with `environment: dev` sees the
+# dev value. envsubst then fills both blocks with that single value - but `wrangler deploy
+# --env production` reads only [env.production], and the demo deploy (`--env=""`) reads
+# only this default block. The block that received the "wrong" value is never consulted.
+#
+# Prefixing would also not prevent the real failure mode, which is a wrong value set on
+# an environment. The guard in each workflow's "Configure Wrangler" step covers the case
+# it can actually detect: an unset secret substituting to an empty string.
 [[d1_databases]]
 binding = "DB"
 database_name = "${DEV_PHOTO_ALBUMS_DB_NAME}"
 database_id = "${DEV_PHOTO_ALBUMS_DB_ID}"
+
+# Per-IP rate limiting. `period` accepts only 10 or 60 seconds.
+#
+# `namespace_id` must differ between this block and [env.production] below: Cloudflare
+# shares counters across bindings that use the same namespace in the same account, so a
+# shared id would give an IP hitting both Workers 300 req/60s *combined* rather than 300
+# against each.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 300, period = 60 }
 
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "${CLOUDFLARE_ACCOUNT_ID}"
@@ -22,6 +48,13 @@ ALBUM_URL = "${ALBUM_URL}"
 binding = "DB"
 database_name = "${PROD_PHOTO_ALBUMS_DB_NAME}"
 database_id = "${PROD_PHOTO_ALBUMS_DB_ID}"
+
+# Separate namespace from the dev block above - see the note there.
+[[env.production.unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 300, period = 60 }
 
 [env.production.vars]
 CLOUDFLARE_ACCOUNT_ID = "${CLOUDFLARE_ACCOUNT_ID}"

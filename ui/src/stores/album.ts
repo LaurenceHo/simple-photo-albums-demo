@@ -15,7 +15,7 @@ export const initialAlbum: Album = {
   albumCover: '',
   description: '',
   tags: [],
-  isPrivate: true,
+  isUnlisted: true,
 };
 
 export interface FilteredAlbumsByYear {
@@ -27,7 +27,7 @@ export interface FilteredAlbumsByYear {
 export interface AlbumFilterState {
   searchKey: string;
   selectedTags: string[];
-  privateOnly: boolean;
+  unlistedOnly: boolean;
   sortOrder: 'asc' | 'desc';
 }
 
@@ -58,7 +58,7 @@ export const useAlbumStore = defineStore('album', () => {
   const filterState = ref<AlbumFilterState>({
     searchKey: '',
     selectedTags: [],
-    privateOnly: false,
+    unlistedOnly: false,
     sortOrder: 'desc',
   });
   const filteredAlbums = ref<Album[]>([]);
@@ -107,8 +107,8 @@ export const useAlbumStore = defineStore('album', () => {
   const applyFilters = () => {
     let result = [...(data.value || [])];
 
-    if (filterState.value.privateOnly) {
-      result = result.filter((album) => album.isPrivate);
+    if (filterState.value.unlistedOnly) {
+      result = result.filter((album) => album.isUnlisted);
     }
 
     if (filterState.value.searchKey) {
@@ -151,7 +151,7 @@ export const useAlbumStore = defineStore('album', () => {
   const isAlbumCover = (photoKey: string) => photoKey === currentAlbum.value.albumCover;
   const setSelectedYear = (value: string) => (selectedYear.value = value);
   const setSearchKey = (value: string) => (filterState.value.searchKey = value);
-  const setPrivateOnly = (value: boolean) => (filterState.value.privateOnly = value);
+  const setUnlistedOnly = (value: boolean) => (filterState.value.unlistedOnly = value);
   const setSortOrder = (value: 'asc' | 'desc') => (filterState.value.sortOrder = value);
   const setSelectedTags = (value: string[]) => (filterState.value.selectedTags = value);
   const setEnabled = (value: boolean) => (isEnabled.value = value);
@@ -160,7 +160,7 @@ export const useAlbumStore = defineStore('album', () => {
     filterState.value = {
       searchKey: '',
       selectedTags: [],
-      privateOnly: false,
+      unlistedOnly: false,
       sortOrder: 'desc',
     };
   };
@@ -180,7 +180,7 @@ export const useAlbumStore = defineStore('album', () => {
     refetchAlbums,
     setSelectedYear,
     setSearchKey,
-    setPrivateOnly,
+    setUnlistedOnly,
     setSortOrder,
     setSelectedTags,
     clearFilters,

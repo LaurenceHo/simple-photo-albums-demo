@@ -17,7 +17,7 @@ export const getPhotos = http.get('/api/photos/**', async ({ params }) => {
           albumName: 'This is demo album 4',
           description: 'This is an album description',
           albumCover: 'demo-album-4/2024-05-02 18.28.53.jpg',
-          isPrivate: false,
+          isUnlisted: false,
           isFeatured: true,
           place: {
             formattedAddress: 'Valencia, Spain',
@@ -93,7 +93,7 @@ export const getPhotos = http.get('/api/photos/**', async ({ params }) => {
         albumName: 'this is demo-album-3',
         description: '',
         albumCover: 'demo-album3/batch_dog-8378909.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: false,
         place: {
           formattedAddress: 'George Town, Penang, Malaysia',

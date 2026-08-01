@@ -1,0 +1,19 @@
+# Private infrastructure identifiers that must never be committed to this public repo.
+#
+# Copy this file to `.private-strings` (gitignored) and replace the examples below with
+# your own real values. `.husky/pre-commit` reads it and rejects any staged change whose
+# added lines match. One extended-regex pattern per line; `#` starts a comment.
+#
+# Do NOT put real values in this `.example` file - it is committed.
+
+# Custom domains and their subdomains
+your-domain\.example
+
+# R2 bucket names
+(prod|dev)-your-bucket-name
+
+# Cloudflare worker / Pages project names
+your-worker-name
+
+# Cloudflare account ID
+0123456789abcdef0123456789abcdef

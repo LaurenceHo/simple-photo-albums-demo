@@ -6,6 +6,9 @@ const helperMock = vi.hoisted(() => ({
   verifyIfIsAdmin: vi.fn(() => true),
 }));
 
+/** Records the `includeUnlisted` argument the controller passes to the service. */
+const featuredAlbumsSpy = vi.hoisted(() => vi.fn());
+
 vi.mock('../../src/services/aggregation-service', async () => {
   const { mockAlbumList } = await import('../mock-data');
 
@@ -15,8 +18,8 @@ vi.mock('../../src/services/aggregation-service', async () => {
       async getAlbumsWithLocation(isAdmin: boolean) {
         return mockAlbumList;
       }
-      async getCountAlbumsByYear(includePrivate: boolean) {
-        if (includePrivate) {
+      async getCountAlbumsByYear(includeUnlisted: boolean) {
+        if (includeUnlisted) {
           return [
             { year: '2018', count: 1 },
             { year: '2019', count: 11 },
@@ -30,7 +33,8 @@ vi.mock('../../src/services/aggregation-service', async () => {
           ];
         }
       }
-      async getFeaturedAlbums() {
+      async getFeaturedAlbums(includeUnlisted: boolean) {
+        featuredAlbumsSpy(includeUnlisted);
         return [];
       }
     },
@@ -72,7 +76,7 @@ describe("aggregate route when it's admin", () => {
     expect(response.status).toBe(200);
   });
 
-  it('should return count albums include private album', async () => {
+  it('should return count albums include unlisted album', async () => {
     const token = await mockSignedCookies();
     const response = await app.request(
       '/api/aggregate/count-albums-by-year',
@@ -101,5 +105,29 @@ describe("aggregate route when it's admin", () => {
   it('should return 400 bad request', async () => {
     const response = await app.request('/api/aggregate/invalidType', {}, env);
     expect(response.status).toBe(400);
+  });
+
+  // Guards the controller wiring, which is where the leak actually was: the service
+  // gained an includeUnlisted parameter but the controller never passed one, so every
+  // caller - signed in or not - received unlisted featured albums.
+  it('should ask for unlisted featured albums when the caller is an admin', async () => {
+    featuredAlbumsSpy.mockClear();
+    const token = await mockSignedCookies();
+
+    await app.request(
+      '/api/aggregate/featured-albums',
+      { headers: { Cookie: `jwt=${token}` } },
+      env,
+    );
+
+    expect(featuredAlbumsSpy).toHaveBeenCalledWith(true);
+  });
+
+  it('should exclude unlisted featured albums for an anonymous caller', async () => {
+    featuredAlbumsSpy.mockClear();
+
+    await app.request('/api/aggregate/featured-albums', {}, env);
+
+    expect(featuredAlbumsSpy).toHaveBeenCalledWith(false);
   });
 });

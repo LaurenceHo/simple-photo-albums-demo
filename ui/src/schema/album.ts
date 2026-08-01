@@ -9,7 +9,7 @@ export const AlbumSchema = z.object({
   albumName: z.string(),
   albumCover: z.string().optional(),
   description: z.string().optional(),
-  isPrivate: z.boolean(),
+  isUnlisted: z.boolean(),
   isFeatured: z.boolean().optional().nullable(),
   tags: z.array(z.string()).optional(),
   place: PlaceSchema.optional().nullable(),

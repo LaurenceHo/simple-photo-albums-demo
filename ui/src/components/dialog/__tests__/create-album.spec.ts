@@ -179,7 +179,7 @@ describe('CreateAlbum', () => {
       albumCover: '',
       description: '',
       tags: [],
-      isPrivate: true,
+      isUnlisted: true,
     };
 
     // Reset router
@@ -250,27 +250,27 @@ describe('CreateAlbum', () => {
     expect(wrapper.text()).not.toContain('Only lowercase alphanumeric');
   });
 
-  it('toggles featured album based on private album status', async () => {
+  it('toggles featured album based on unlisted album status', async () => {
     const wrapper = mountComponent();
-    const privateToggle = wrapper.findComponent(ToggleSwitch);
+    const unlistedToggle = wrapper.findComponent(ToggleSwitch);
     const featuredToggle = wrapper.findAllComponents(ToggleSwitch)[1];
 
-    // Default private album is true
-    expect(privateToggle.props('modelValue')).toBe(true);
+    // Default unlisted album is true
+    expect(unlistedToggle.props('modelValue')).toBe(true);
     expect(featuredToggle.classes()).toContain('p-disabled');
 
-    // Disable private album
-    await privateToggle.setValue(false);
-    expect(privateToggle.props('modelValue')).toBe(false);
+    // Disable unlisted album
+    await unlistedToggle.setValue(false);
+    expect(unlistedToggle.props('modelValue')).toBe(false);
     expect(featuredToggle.classes()).not.toContain('p-disabled');
 
     // Set featured to true
     await featuredToggle.setValue(true);
     expect(featuredToggle.props('modelValue')).toBe(true);
 
-    // Enable private album
-    await privateToggle.setValue(true);
-    expect(privateToggle.props('modelValue')).toBe(true);
+    // Enable unlisted album
+    await unlistedToggle.setValue(true);
+    expect(unlistedToggle.props('modelValue')).toBe(true);
 
     // Featured should automatically be set to false
     expect(featuredToggle.props('modelValue')).toBe(false);
@@ -309,7 +309,7 @@ describe('CreateAlbum', () => {
       id: 'test-album',
       albumName: 'Test Album',
       description: 'Test Description',
-      isPrivate: true,
+      isUnlisted: true,
       tags: ['test'],
     };
 
@@ -373,7 +373,7 @@ describe('CreateAlbum', () => {
       id: 'existing-album',
       albumName: 'Existing Album',
       description: 'Existing Description',
-      isPrivate: false,
+      isUnlisted: false,
       isFeatured: true,
       tags: ['existing-tag'],
       place: {
@@ -408,7 +408,7 @@ describe('CreateAlbum', () => {
       id: 'existing-album',
       albumName: 'Old Name',
       description: 'Old Description',
-      isPrivate: true,
+      isUnlisted: true,
     };
     const wrapper = mountComponent();
     await flushPromises();
@@ -473,7 +473,7 @@ describe('CreateAlbum', () => {
       albumCover: '',
       description: '',
       tags: [],
-      isPrivate: true,
+      isUnlisted: true,
     };
     // Spy on invalidateQueries
     vi.spyOn(queryClient, 'invalidateQueries');

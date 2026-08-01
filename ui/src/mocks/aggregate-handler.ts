@@ -7,7 +7,7 @@ export const mockFeaturedAlbums = [
     albumName: '2024 demo album5',
     description: 'Some test photos',
     albumCover: 'demo-album5/batch_2017-05-14 13.15.16.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Tokyo, Japan',
@@ -25,7 +25,7 @@ export const mockFeaturedAlbums = [
     albumName: 'This is demo album 4',
     description: 'This is an album description',
     albumCover: 'demo-album-4/2026-01-02_08.44.59.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Valencia, Spain',
@@ -43,7 +43,7 @@ export const mockFeaturedAlbums = [
     albumName: '1 demo-album 1',
     description: 'This is demo album 1',
     albumCover: 'demo-album1/batch_flamingo-8353373.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Venice, Metropolitan City of Venice, Italy',
@@ -61,7 +61,7 @@ export const mockFeaturedAlbums = [
     albumName: 'demo-album 2',
     description: 'This is demo album 2',
     albumCover: 'demo-album2/batch_bird-8360220.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Honolulu, HI, USA',
@@ -79,7 +79,7 @@ export const mockFeaturedAlbums = [
     albumName: '2024 demo album5',
     description: 'Some test photos',
     albumCover: 'demo-album5/batch_2017-05-14 13.15.16.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Tokyo, Japan',
@@ -97,7 +97,7 @@ export const mockFeaturedAlbums = [
     albumName: 'This is demo album 4',
     description: 'This is an album description',
     albumCover: 'demo-album-4/2026-01-02_08.44.59.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Valencia, Spain',
@@ -115,7 +115,7 @@ export const mockFeaturedAlbums = [
     albumName: '1 demo-album 1',
     description: 'This is demo album 1',
     albumCover: 'demo-album1/batch_flamingo-8353373.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Venice, Metropolitan City of Venice, Italy',
@@ -133,7 +133,7 @@ export const mockFeaturedAlbums = [
     albumName: 'demo-album 2',
     description: 'This is demo album 2',
     albumCover: 'demo-album2/batch_bird-8360220.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Honolulu, HI, USA',
@@ -196,7 +196,7 @@ export const getAlbumWithLocation = http.get('/api/aggregate/albums-with-locatio
         albumName: '2024 demo album5',
         description: 'Some test photos',
         albumCover: 'demo-album5/batch_2017-05-14 13.15.16.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: true,
         place: {
           formattedAddress: 'Tokyo, Japan',
@@ -214,7 +214,7 @@ export const getAlbumWithLocation = http.get('/api/aggregate/albums-with-locatio
         albumName: 'This is demo album 4',
         description: 'This is an album description',
         albumCover: 'demo-album-4/2024-05-02 18.28.53.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: true,
         place: {
           formattedAddress: 'Valencia, Spain',
@@ -232,7 +232,7 @@ export const getAlbumWithLocation = http.get('/api/aggregate/albums-with-locatio
         albumName: '1 demo-album 1',
         description: 'This is demo album 1',
         albumCover: 'demo-album1/batch_flamingo-8353373.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: true,
         place: {
           formattedAddress: 'Venice, Metropolitan City of Venice, Italy',
@@ -250,7 +250,7 @@ export const getAlbumWithLocation = http.get('/api/aggregate/albums-with-locatio
         albumName: 'demo-album 2',
         description: 'This is demo album 2',
         albumCover: 'demo-album2/batch_bird-8360220.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: true,
         place: {
           formattedAddress: 'Honolulu, HI, USA',
@@ -268,7 +268,7 @@ export const getAlbumWithLocation = http.get('/api/aggregate/albums-with-locatio
         albumName: 'this is demo-album-3',
         description: '',
         albumCover: 'demo-album3/batch_dog-8378909.jpg',
-        isPrivate: false,
+        isUnlisted: false,
         isFeatured: false,
         place: {
           formattedAddress: 'George Town, Penang, Malaysia',

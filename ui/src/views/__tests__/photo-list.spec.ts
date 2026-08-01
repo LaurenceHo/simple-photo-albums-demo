@@ -48,7 +48,7 @@ const { mockUserConfigStore, mockAlbumStore, mockPhotoStore, mockDialogStore } =
         albumCover: '',
         description: '',
         tags: [],
-        isPrivate: false,
+        isUnlisted: false,
       }),
       refetchAlbums: vi.fn(),
       isAlbumCover: vi.fn(() => false),

@@ -54,7 +54,7 @@ describe('AlbumList.vue', () => {
                 filterState: {
                   searchKey: '',
                   selectedTags: [],
-                  privateOnly: false,
+                  unlistedOnly: false,
                   sortOrder: 'desc',
                 },
                 filteredAlbums: [],
@@ -208,7 +208,7 @@ describe('AlbumList.vue', () => {
         albumCover: '',
         description: '',
         tags: [],
-        isPrivate: false,
+        isUnlisted: false,
       },
       {
         id: '2',
@@ -217,7 +217,7 @@ describe('AlbumList.vue', () => {
         albumCover: '',
         description: '',
         tags: [],
-        isPrivate: false,
+        isUnlisted: false,
       },
       {
         id: '3',
@@ -226,7 +226,7 @@ describe('AlbumList.vue', () => {
         albumCover: '',
         description: '',
         tags: [],
-        isPrivate: false,
+        isUnlisted: false,
       },
     ];
 
@@ -235,7 +235,7 @@ describe('AlbumList.vue', () => {
     expect(wrapper.findAllComponents({ name: 'Album' }).length).toBe(3);
   });
 
-  it('shows the private album toggle for admin users', async () => {
+  it('shows the unlisted album toggle for admin users', async () => {
     const wrapper = createWrapper();
     const albumStore = useAlbumStore();
     const userStore = useUserConfigStore();
@@ -245,7 +245,7 @@ describe('AlbumList.vue', () => {
     const toggleSwitch = wrapper.findComponent({ name: 'ToggleSwitch' });
     expect(toggleSwitch.exists()).toBe(true);
     await toggleSwitch.vm.$emit('update:modelValue', true);
-    expect(albumStore.filterState.privateOnly).toBe(true);
+    expect(albumStore.filterState.unlistedOnly).toBe(true);
   });
 
   it('renders CreateAlbum dialog when updateAlbum is true', async () => {

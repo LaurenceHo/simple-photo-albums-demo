@@ -4,7 +4,7 @@ import app from '../../src/index';
 let mockAlbumResult: Record<string, unknown> | null = {
   id: 'test',
   albumName: 'Test',
-  isPrivate: false,
+  isUnlisted: false,
   tags: [],
 };
 let mockR2Behavior: 'success' | 'error' = 'success';
@@ -57,6 +57,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'admin', email: 'test@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => await next()),
     cleanJwtCookie: (c: any, message: string, code = 401) => c.json({ message }, code),
@@ -71,7 +74,7 @@ const env = {
 
 describe('Photo route - error paths', () => {
   beforeEach(() => {
-    mockAlbumResult = { id: 'test', albumName: 'Test', isPrivate: false, tags: [], albumCover: '' };
+    mockAlbumResult = { id: 'test', albumName: 'Test', isUnlisted: false, tags: [], albumCover: '' };
     mockR2Behavior = 'success';
     mockDeleteObjects.mockReset().mockResolvedValue(true);
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -110,21 +113,49 @@ describe('Photo route - error paths', () => {
   /* ------------------------------------------------------------------ */
   /* create (presigned URL) errors                                       */
   /* ------------------------------------------------------------------ */
-  describe('GET /api/photos/upload/:albumId', () => {
-    it('should return 500 when filename is missing', async () => {
-      const res = await app.request('/api/photos/upload/test?mimeType=image/jpeg', {}, env);
+  describe('POST /api/photos/upload/:albumId', () => {
+    // 400, not 500: the query is now schema-validated by zValidator, which rejects a
+    // malformed request before the handler runs.
+    it('should return 400 when filename is missing', async () => {
+      const res = await app.request(
+        '/api/photos/upload/test?mimeType=image/jpeg',
+        { method: 'POST' },
+        env,
+      );
 
-      expect(res.status).toBe(500);
-      const body = await res.json();
-      expect(body.message).toContain('Filename and mimeType are required');
+      expect(res.status).toBe(400);
     });
 
-    it('should return 500 when mimeType is missing', async () => {
-      const res = await app.request('/api/photos/upload/test?filename=photo.jpg', {}, env);
+    it('should return 400 when mimeType is missing', async () => {
+      const res = await app.request(
+        '/api/photos/upload/test?filename=photo.jpg',
+        { method: 'POST' },
+        env,
+      );
 
-      expect(res.status).toBe(500);
-      const body = await res.json();
-      expect(body.message).toContain('Filename and mimeType are required');
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 400 when mimeType is not an allowed image type', async () => {
+      // text/html would otherwise be written as the presigned PUT's ContentType, which
+      // is stored XSS on a public CDN origin.
+      const res = await app.request(
+        '/api/photos/upload/test?filename=evil.html&mimeType=text/html',
+        { method: 'POST' },
+        env,
+      );
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 400 when filename attempts path traversal', async () => {
+      const res = await app.request(
+        `/api/photos/upload/test?filename=${encodeURIComponent('../../evil.jpg')}&mimeType=image/jpeg`,
+        { method: 'POST' },
+        env,
+      );
+
+      expect(res.status).toBe(400);
     });
 
     it('should return 500 when presigned URL generation fails', async () => {
@@ -132,7 +163,7 @@ describe('Photo route - error paths', () => {
 
       const res = await app.request(
         '/api/photos/upload/test?filename=photo.jpg&mimeType=image/jpeg',
-        {},
+        { method: 'POST' },
         env,
       );
 
@@ -151,6 +182,58 @@ describe('Photo route - error paths', () => {
       destinationAlbumId: 'dest-album',
       photoKeys: ['photo1.jpg', 'photo2.jpg'],
     };
+
+    // A move without a destination used to pass validation, copy every photo to the
+    // literal prefix `undefined/`, and then delete the originals - silently relocating
+    // them to a garbage prefix. MovePhotosRequestSchema makes the field required.
+    it('should return 400 when destinationAlbumId is missing', async () => {
+      const { destinationAlbumId: _omitted, ...bodyWithoutDestination } = moveBody;
+
+      const res = await app.request(
+        '/api/photos',
+        {
+          method: 'PUT',
+          body: JSON.stringify(bodyWithoutDestination),
+          headers: { 'Content-Type': 'application/json' },
+        },
+        env,
+      );
+
+      expect(res.status).toBe(400);
+      expect(mockDeleteObjects).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 when destinationAlbumId attempts path traversal', async () => {
+      const res = await app.request(
+        '/api/photos',
+        {
+          method: 'PUT',
+          body: JSON.stringify({ ...moveBody, destinationAlbumId: '../elsewhere' }),
+          headers: { 'Content-Type': 'application/json' },
+        },
+        env,
+      );
+
+      expect(res.status).toBe(400);
+      expect(mockDeleteObjects).not.toHaveBeenCalled();
+    });
+
+    // Delete has no destination, so it must keep accepting a body without one.
+    it('should still allow DELETE without a destinationAlbumId', async () => {
+      const { destinationAlbumId: _omitted, ...bodyWithoutDestination } = moveBody;
+
+      const res = await app.request(
+        '/api/photos',
+        {
+          method: 'DELETE',
+          body: JSON.stringify(bodyWithoutDestination),
+          headers: { 'Content-Type': 'application/json' },
+        },
+        env,
+      );
+
+      expect(res.status).not.toBe(400);
+    });
 
     it('should return 500 when all copies fail', async () => {
       mockR2Behavior = 'error';

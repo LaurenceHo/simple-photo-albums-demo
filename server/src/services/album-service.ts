@@ -1,5 +1,5 @@
 import { Album } from '../types/album';
-import { D1Service } from './d1-service';
+import { assertSafeColumn, D1Service } from './d1-service';
 
 export default class AlbumService extends D1Service<Album> {
   constructor(db: D1Database) {
@@ -18,7 +18,8 @@ export default class AlbumService extends D1Service<Album> {
       const conditions: string[] = [];
       for (const [key, value] of Object.entries(where)) {
         if (value !== undefined) {
-          conditions.push(`a.${key} = ?`);
+          // Same identifier hazard as D1Service: `key` lands in the SQL text, not a bind.
+          conditions.push(`a.${assertSafeColumn(key)} = ?`);
           values.push(value);
         }
       }
@@ -76,6 +77,10 @@ export default class AlbumService extends D1Service<Album> {
    * that column. `D1Service.update` skips undefined keys, and the `tags !== undefined`
    * guard below means an omitted `tags` leaves the album's tag rows untouched instead of
    * deleting and re-inserting them.
+   *
+   * This also matches the base `D1Service<T>.update` signature. Narrowing it to `Album`
+   * was unsound: parameter bivariance let it compile, but any `D1Service<Album>`
+   * reference could already pass a partial.
    */
   override async update(id: string, item: Partial<Album>): Promise<any> {
     const tags = item.tags;
@@ -133,8 +138,8 @@ export default class AlbumService extends D1Service<Album> {
 
     // Convert booleans
     // D1/SQLite stores booleans as 0 or 1
-    if (item.isPrivate !== undefined) {
-      item.isPrivate = !!item.isPrivate;
+    if (item.isUnlisted !== undefined) {
+      item.isUnlisted = !!item.isUnlisted;
     }
     if (item.isFeatured !== undefined) {
       item.isFeatured = !!item.isFeatured;

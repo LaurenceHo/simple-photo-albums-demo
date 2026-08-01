@@ -26,6 +26,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'admin', email: 'test@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => await next()),
   };
@@ -93,12 +96,27 @@ describe('photo route', () => {
     it('should return 200', async () => {
       const response = await app.request(
         '/api/photos/upload/test?filename=test.jpg&mimeType=image/jpeg',
-        {},
+        { method: 'POST' },
         env,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.data.uploadUrl).toBeDefined();
+    });
+
+    // Minting an upload credential must not be reachable by a safe method, since
+    // verifyOrigin skips GET/HEAD/OPTIONS. Note this GET is not a 404: it falls through
+    // to the pre-existing
+    // `/api/photos/:year/:albumId` listing route, which matches `upload/test` as
+    // year=upload, albumId=test. What matters is that no presigned URL comes back.
+    it('should not mint an upload URL via GET', async () => {
+      const response = await app.request(
+        '/api/photos/upload/test?filename=test.jpg&mimeType=image/jpeg',
+        {},
+        env,
+      );
+      const body = await response.json();
+      expect(body.data?.uploadUrl).toBeUndefined();
     });
   });
 });

@@ -1,7 +1,8 @@
 import { Context } from 'hono';
-import { HonoEnv } from '../env';
+import { HonoEnv, ValidatedJsonContext } from '../env';
 import AlbumTagService from '../services/album-tag-service';
 import { AlbumTag } from '../types/album';
+import { CreateTagRequest } from '../types/request-schemas';
 import { UserPermission } from '../types/user-permission';
 import { BaseController } from './base-controller';
 
@@ -18,12 +19,16 @@ export default class AlbumTagController extends BaseController {
     }
   };
 
-  create = async (c: Context<HonoEnv>) => {
-    const tags = await c.req.json<AlbumTag[]>();
+  create = async (c: ValidatedJsonContext<CreateTagRequest>) => {
+    const tags = c.req.valid('json');
     const user = c.get('user') as UserPermission;
+    // Both audit fields are set here rather than taken from the request: CreateTagSchema
+    // accepts only `tag`, so a client cannot forge who created a tag or when.
+    const createdAt = new Date().toISOString();
     const tagsToCreate: AlbumTag[] = tags.map((tag) => {
       return {
         ...tag,
+        createdAt,
         createdBy: user?.email ?? 'unknown',
       };
     });

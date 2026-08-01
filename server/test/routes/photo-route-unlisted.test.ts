@@ -66,7 +66,7 @@ const env = {
   R2_BUCKET_NAME: 'test-bucket',
 };
 
-describe('Photo route - private album access & syncAlbumCover', () => {
+describe('Photo route - unlisted album access & syncAlbumCover', () => {
   beforeEach(() => {
     mockAlbumResult = null;
     mockPhotos = [];
@@ -82,11 +82,11 @@ describe('Photo route - private album access & syncAlbumCover', () => {
   /* checkAlbumAccess                                                    */
   /* ------------------------------------------------------------------ */
   describe('checkAlbumAccess', () => {
-    it('should return 401 when accessing private album without JWT', async () => {
+    it('should return 401 when accessing unlisted album without JWT', async () => {
       mockAlbumResult = {
         id: 'priv',
         albumName: 'Private',
-        isPrivate: true,
+        isUnlisted: true,
         tags: [],
         albumCover: '',
       };
@@ -98,11 +98,11 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       expect(body.message).toBe('Authentication failed.');
     });
 
-    it('should return 403 when non-admin accesses private album', async () => {
+    it('should return 403 when non-admin accesses unlisted album', async () => {
       mockAlbumResult = {
         id: 'priv',
         albumName: 'Private',
-        isPrivate: true,
+        isUnlisted: true,
         tags: [],
         albumCover: '',
       };
@@ -119,11 +119,11 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       expect(body.message).toBe('Unauthorized action.');
     });
 
-    it('should return 401 when JWT is invalid for private album', async () => {
+    it('should return 401 when JWT is invalid for unlisted album', async () => {
       mockAlbumResult = {
         id: 'priv',
         albumName: 'Private',
-        isPrivate: true,
+        isUnlisted: true,
         tags: [],
         albumCover: '',
       };
@@ -139,11 +139,11 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       expect(body.message).toBe('Authentication failed.');
     });
 
-    it('should allow admin to access private album', async () => {
+    it('should allow admin to access unlisted album', async () => {
       mockAlbumResult = {
         id: 'priv',
         albumName: 'Private',
-        isPrivate: true,
+        isUnlisted: true,
         tags: [],
         albumCover: '',
       };
@@ -167,7 +167,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-1',
         albumName: 'NoCover',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         albumCover: '',
       };
@@ -194,7 +194,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-1',
         albumName: 'NoCover',
-        isPrivate: false,
+        isUnlisted: false,
         tags: ['keep-me'],
         albumCover: '',
         place: { displayName: 'Somewhere' },
@@ -216,7 +216,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       // `id` is the WHERE key, not a SET field.
       expect(payload).not.toHaveProperty('id');
       // Untouched columns must not be rewritten.
-      for (const key of ['albumName', 'isPrivate', 'place', 'createdAt', 'createdBy']) {
+      for (const key of ['albumName', 'isUnlisted', 'place', 'createdAt', 'createdBy']) {
         expect(payload).not.toHaveProperty(key);
       }
       expect(Object.keys(payload).sort()).toEqual(['albumCover', 'updatedAt', 'updatedBy']);
@@ -227,7 +227,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-1',
         albumName: 'NoCover',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         albumCover: '',
         updatedAt: staleTimestamp,
@@ -252,7 +252,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-2',
         albumName: 'HasCover',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         albumCover: 'album-2/old-photo.jpg',
       };
@@ -269,7 +269,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-3',
         albumName: 'AllGood',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         albumCover: 'album-3/cover.jpg',
       };
@@ -286,7 +286,7 @@ describe('Photo route - private album access & syncAlbumCover', () => {
       mockAlbumResult = {
         id: 'album-4',
         albumName: 'Empty',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         albumCover: '',
       };

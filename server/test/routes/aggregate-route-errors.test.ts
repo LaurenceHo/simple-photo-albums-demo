@@ -9,9 +9,9 @@ vi.mock('../../src/services/aggregation-service', () => ({
       if (mockError) throw new Error('DB connection lost');
       return [];
     }
-    async getCountAlbumsByYear(includePrivate: boolean) {
+    async getCountAlbumsByYear(includeUnlisted: boolean) {
       if (mockError) throw new Error('DB timeout');
-      return includePrivate ? [{ year: '2024', count: 3 }] : [{ year: '2024', count: 1 }];
+      return includeUnlisted ? [{ year: '2024', count: 3 }] : [{ year: '2024', count: 1 }];
     }
     async getFeaturedAlbums() {
       if (mockError) throw new Error('DB error');
@@ -27,6 +27,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'viewer', email: 'viewer@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => {
       // Non-admin user
@@ -90,12 +93,12 @@ describe('Aggregate route - error paths & edge cases', () => {
   /* count-albums-by-year                                                */
   /* ------------------------------------------------------------------ */
   describe('count-albums-by-year', () => {
-    it('should return non-admin counts (excludes private)', async () => {
+    it('should return non-admin counts (excludes unlisted)', async () => {
       const res = await app.request('/api/aggregate/count-albums-by-year', {}, env);
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      // Non-admin user → includePrivate = false → count = 1
+      // Non-admin user → includeUnlisted = false → count = 1
       expect(body.data).toEqual([{ year: '2024', count: 1 }]);
     });
 

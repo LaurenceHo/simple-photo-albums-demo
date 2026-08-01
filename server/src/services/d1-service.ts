@@ -23,12 +23,50 @@ function flattenForD1(value: unknown): Primitive {
   throw new Error(`Unsupported value for D1: ${value} (${typeof value})`);
 }
 
+/**
+ * A bare SQL identifier: leading letter or underscore, then letters/digits/underscores.
+ *
+ * Column names reach the SQL *text* rather than a bind parameter (D1, like SQLite,
+ * cannot parameterise identifiers), so every key must be proven safe before it is
+ * interpolated. Values are always bound and need no such check.
+ */
+const SQL_IDENTIFIER = /^[A-Za-z_]\w*$/;
+
+/**
+ * Thrown when a column name fails `SQL_IDENTIFIER`. Distinct from a generic Error so
+ * callers can map it to a 400 rather than a 500 if they choose.
+ */
+export class InvalidColumnNameError extends Error {
+  constructor(key: string) {
+    super(`Invalid column name: ${JSON.stringify(key)}`);
+    this.name = 'InvalidColumnNameError';
+  }
+}
+
+/**
+ * Reject any key that is not a plain identifier.
+ *
+ * Without this, an object key such as `"isFeatured = 1, description"` becomes part of
+ * an `UPDATE ... SET` clause verbatim, letting a request write columns its schema never
+ * declared. Fails closed - an unrecognised key raises rather than being skipped, so a
+ * typo surfaces as an error instead of a silently dropped field.
+ */
+export function assertSafeColumn(key: string): string {
+  if (!SQL_IDENTIFIER.test(key)) {
+    throw new InvalidColumnNameError(key);
+  }
+  return key;
+}
+
 export class D1Service<T> {
   protected readonly db: D1Database;
   private readonly tableName: string;
 
   constructor(db: D1Database, tableName: string) {
     this.db = db;
+    if (!SQL_IDENTIFIER.test(tableName)) {
+      throw new InvalidColumnNameError(tableName);
+    }
     this.tableName = tableName;
   }
 
@@ -79,7 +117,7 @@ export class D1Service<T> {
 
     for (const [key, value] of Object.entries(obj)) {
       if (value === undefined) continue; // skip undefined
-      keys.push(key);
+      keys.push(assertSafeColumn(key));
       bindValues.push(flattenForD1(value));
     }
 
@@ -106,7 +144,7 @@ export class D1Service<T> {
 
     for (const [key, value] of Object.entries(obj)) {
       if (value === undefined) continue;
-      setParts.push(`${key} = ?`);
+      setParts.push(`${assertSafeColumn(key)} = ?`);
       bindValues.push(flattenForD1(value));
     }
 
@@ -140,7 +178,7 @@ export class D1Service<T> {
       return { clause: '1=1', values: [] };
     }
 
-    const clauseParts = entries.map(([k]) => `${k} = ?`);
+    const clauseParts = entries.map(([k]) => `${assertSafeColumn(k)} = ?`);
     const values = entries.map(([, v]) => flattenForD1(v));
 
     return {

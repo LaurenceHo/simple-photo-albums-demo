@@ -15,8 +15,13 @@
     <form @reset.prevent="resetAlbum" @submit.prevent="validateAndSubmit">
       <div class="mb-4">
         <div class="mb-4 flex items-center pb-4">
-          Private album
-          <ToggleSwitch v-model="privateAlbum" :disable="isCreatingAlbum" class="ml-2" />
+          <label for="album-unlisted">Unlisted album</label>
+          <ToggleSwitch
+            v-model="unlistedAlbum"
+            :disabled="isCreatingAlbum"
+            class="ml-2"
+            input-id="album-unlisted"
+          />
         </div>
 
         <div class="mb-4 pb-4">
@@ -119,15 +124,16 @@
 
         <div class="mb-4 pb-4">
           <div class="flex items-center">
-            Featured album
+            <label for="album-featured">Featured album</label>
             <ToggleSwitch
               v-model="featuredAlbum"
-              :disabled="isCreatingAlbum || privateAlbum"
+              :disabled="isCreatingAlbum || unlistedAlbum"
               class="ml-2"
+              input-id="album-featured"
             />
           </div>
-          <small v-if="privateAlbum" class="text-gray-500">
-            Cannot be featured album if album is private.
+          <small v-if="unlistedAlbum" class="text-gray-500">
+            Cannot be featured album if album is unlisted.
           </small>
         </div>
 
@@ -237,7 +243,7 @@ const selectedYear = ref(String(new Date().getFullYear()));
 const albumId = ref('');
 const albumName = ref('');
 const albumDesc = ref('');
-const privateAlbum = ref(false);
+const unlistedAlbum = ref(false);
 const featuredAlbum = ref<boolean | undefined>(undefined);
 const selectedAlbumTags = ref<string[]>([]);
 const selectedPlace = ref<Place | null>(null);
@@ -315,7 +321,7 @@ const { isPending: isCreatingAlbum, mutate: createAlbum } = useMutation({
       albumCover: albumToBeUpdate.value.albumCover || '',
       albumName: albumName.value,
       description: albumDesc.value,
-      isPrivate: privateAlbum.value,
+      isUnlisted: unlistedAlbum.value,
       isFeatured: featuredAlbum.value ?? undefined,
       place: selectedPlace.value,
       tags: selectedAlbumTags.value,
@@ -401,7 +407,7 @@ watch(
       albumId.value = albumStore.albumToBeUpdate?.id || '';
       albumName.value = albumStore.albumToBeUpdate?.albumName || '';
       albumDesc.value = albumStore.albumToBeUpdate?.description || '';
-      privateAlbum.value = albumStore.albumToBeUpdate?.isPrivate ?? true;
+      unlistedAlbum.value = albumStore.albumToBeUpdate?.isUnlisted ?? true;
       featuredAlbum.value = albumStore.albumToBeUpdate?.isFeatured ?? undefined;
       selectedAlbumTags.value = albumStore.albumToBeUpdate?.tags || [];
       selectedPlace.value = albumStore.albumToBeUpdate?.place || null;
@@ -419,7 +425,7 @@ watch(
       albumId.value = newAlbum.id;
       albumName.value = newAlbum.albumName;
       albumDesc.value = newAlbum.description || '';
-      privateAlbum.value = newAlbum.isPrivate;
+      unlistedAlbum.value = newAlbum.isUnlisted;
       featuredAlbum.value = newAlbum.isFeatured || undefined;
       selectedAlbumTags.value = newAlbum.tags || [];
       selectedPlace.value = newAlbum.place || null;
@@ -428,8 +434,8 @@ watch(
   { deep: true },
 );
 
-// If it's private album, it cannot be featured album
-watch(privateAlbum, (newValue) => {
+// If it's unlisted album, it cannot be featured album
+watch(unlistedAlbum, (newValue) => {
   if (newValue) {
     featuredAlbum.value = false;
   }

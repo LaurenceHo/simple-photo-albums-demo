@@ -1,8 +1,8 @@
 import { OAuth2Client } from 'google-auth-library';
 import { Context } from 'hono';
-import { getCookie, setCookie } from 'hono/cookie';
+import { getCookie } from 'hono/cookie';
 import { HonoEnv } from '../env';
-import { setJwtCookies } from '../routes/auth-middleware';
+import { clearJwtCookie, setJwtCookies } from '../routes/auth-middleware';
 import UserService from '../services/user-service';
 import { UserPermission } from '../types/user-permission';
 import { signJwt, verifyJwt } from '../utils/jwt';
@@ -28,12 +28,12 @@ export default class AuthController extends BaseController {
         return this.ok<UserPermission>(c, 'ok', decoded);
       } catch (error: any) {
         console.log('Invalid JWT:', error);
-        setCookie(c, 'jwt', '', { maxAge: 0, path: '/', secure: true, sameSite: 'None' });
+        clearJwtCookie(c);
         return this.ok(c, 'ok');
       }
     } catch (error: any) {
       console.log('Error reading JWT:', error);
-      setCookie(c, 'jwt', '', { maxAge: 0, path: '/', secure: true, sameSite: 'None' });
+      clearJwtCookie(c);
       return this.ok(c, 'ok');
     }
   };
@@ -92,7 +92,7 @@ export default class AuthController extends BaseController {
   // POST /api/auth/logout
   logout = async (c: Context) => {
     try {
-      setCookie(c, 'jwt', '', { maxAge: 0, path: '/', secure: true, sameSite: 'None' });
+      clearJwtCookie(c);
       return this.ok(c, 'Logged out');
     } catch (err: any) {
       console.error('Logout error:', err);

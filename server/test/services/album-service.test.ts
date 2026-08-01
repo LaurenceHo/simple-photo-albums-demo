@@ -69,17 +69,17 @@ describe('AlbumService', () => {
             id: '1',
             tags: '["tag1"]',
             place: '{"displayName":"Paris"}',
-            isPrivate: 1,
+            isUnlisted: 1,
             isFeatured: 0,
           },
-          { id: '2', tags: null, place: null, isPrivate: 0 },
+          { id: '2', tags: null, place: null, isUnlisted: 0 },
         ],
       });
 
       const result = await service.getAll();
 
       expect(result[0].tags).toEqual(['tag1']);
-      expect(result[0].isPrivate).toBe(true);
+      expect(result[0].isUnlisted).toBe(true);
       expect(result[0].isFeatured).toBe(false);
       expect(result[1].tags).toEqual([]);
     });
@@ -95,7 +95,7 @@ describe('AlbumService', () => {
         tags: '["a","b"]',
         place:
           '{"displayName":"Tokyo","formattedAddress":"Tokyo, Japan","location":{"latitude":35.6,"longitude":139.7}}',
-        isPrivate: 0,
+        isUnlisted: 0,
         isFeatured: 1,
       });
 
@@ -104,7 +104,7 @@ describe('AlbumService', () => {
       expect(result).not.toBeNull();
       expect(result!.tags).toEqual(['a', 'b']);
       expect(result!.isFeatured).toBe(true);
-      expect(result!.isPrivate).toBe(false);
+      expect(result!.isUnlisted).toBe(false);
     });
 
     it('should return null when album not found', async () => {
@@ -125,7 +125,7 @@ describe('AlbumService', () => {
         id: 'new-album',
         year: '2024',
         albumName: 'Test',
-        isPrivate: false,
+        isUnlisted: false,
         tags: ['nature', 'travel'],
         createdAt: '2024-01-01',
         createdBy: 'user1',
@@ -146,7 +146,7 @@ describe('AlbumService', () => {
         id: 'new-album',
         year: '2024',
         albumName: 'Test',
-        isPrivate: false,
+        isUnlisted: false,
         tags: [],
         createdAt: '2024-01-01',
         createdBy: 'user1',
@@ -165,7 +165,7 @@ describe('AlbumService', () => {
         id: 'no-tags',
         year: '2024',
         albumName: 'No Tags',
-        isPrivate: false,
+        isUnlisted: false,
         createdAt: '2024-01-01',
         createdBy: 'user1',
         updatedAt: '2024-01-01',
@@ -182,7 +182,7 @@ describe('AlbumService', () => {
         id: 'sys-album',
         year: '2024',
         albumName: 'System',
-        isPrivate: false,
+        isUnlisted: false,
         tags: ['tag1'],
         createdAt: '2024-01-01',
         createdBy: '',
@@ -327,13 +327,13 @@ describe('AlbumService', () => {
       expect(album.place).toBeNull();
     });
 
-    it('should convert SQLite integer 1 to boolean true for isPrivate', async () => {
+    it('should convert SQLite integer 1 to boolean true for isUnlisted', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({
-        results: [{ id: '1', tags: '[]', isPrivate: 1 }],
+        results: [{ id: '1', tags: '[]', isUnlisted: 1 }],
       });
 
       const [album] = await service.getAll();
-      expect(album.isPrivate).toBe(true);
+      expect(album.isUnlisted).toBe(true);
     });
 
     it('should convert SQLite integer 0 to boolean false for isFeatured', async () => {
@@ -345,13 +345,13 @@ describe('AlbumService', () => {
       expect(album.isFeatured).toBe(false);
     });
 
-    it('should not touch isPrivate/isFeatured when undefined', async () => {
+    it('should not touch isUnlisted/isFeatured when undefined', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({
         results: [{ id: '1', tags: '[]' }],
       });
 
       const [album] = await service.getAll();
-      expect(album.isPrivate).toBeUndefined();
+      expect(album.isUnlisted).toBeUndefined();
       expect(album.isFeatured).toBeUndefined();
     });
   });

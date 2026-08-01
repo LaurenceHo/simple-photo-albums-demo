@@ -8,7 +8,7 @@ vi.mock('../../src/services/album-service', async () => {
     default: class {
       constructor(db: any) {}
       async getById(id: string) {
-        return mockAlbumList[2]; // private album
+        return mockAlbumList[2]; // unlisted album
       }
       async update() {
         return 'updated';
@@ -41,6 +41,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
         return c.json({ message: 'Authentication failed. Please login.' }, 401);
       }
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => {
       const token = c.req.header('Cookie');
@@ -61,7 +64,7 @@ const env = {
   JWT_SECRET: 'test-secret',
 };
 
-describe('private album route', () => {
+describe('unlisted album route', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -81,15 +84,25 @@ describe('private album route', () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body).toEqual({
-      code: 200,
-      status: 'Success',
-      message: 'ok',
-      data: {
-        album: mockAlbumList[2],
-        photos: mockPhotoList,
-      },
-    });
+    expect(body.code).toBe(200);
+    expect(body.data.album).toEqual(mockAlbumList[2]);
+    expect(body.data.photos).toHaveLength(mockPhotoList.length);
+  });
+
+  // `isUnlisted` hides an album from the site; it is not a confidentiality control, and
+  // the photo bytes are intentionally public on the CDN. So the URLs handed back here
+  // are the ordinary CDN URLs - what this route gates is the *listing*, above.
+  it('should return ordinary CDN photo URLs', async () => {
+    process.env.JWT_SECRET = 'test-secret';
+    const token = await mockSignedCookies();
+    const response = await app.request(
+      '/api/photos/2024/test',
+      { headers: { Cookie: `jwt=${token}` } },
+      env,
+    );
+
+    const body = await response.json();
+    expect(body.data.photos).toEqual(mockPhotoList);
   });
 
   it('should return 401', async () => {

@@ -52,8 +52,11 @@ export default class AggregateController extends BaseController {
         return this.fail(c, 'Failed to query aggregate data for count albums by year');
       }
     } else if (aggregateType === 'featured-albums') {
+      const user = c.get('user') as UserPermission;
+      const isAdmin = user?.role === 'admin';
+
       try {
-        const featuredAlbums = await aggregationService.getFeaturedAlbums();
+        const featuredAlbums = await aggregationService.getFeaturedAlbums(isAdmin);
         return this.ok<Album[]>(c, 'ok', featuredAlbums);
       } catch (err: any) {
         console.error(`Failed to query aggregate data for featured albums: ${err}`);

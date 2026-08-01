@@ -1,11 +1,12 @@
 import { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { get, isEmpty } from 'radash';
-import { HonoEnv } from '../env';
+import { HonoEnv, ValidatedJsonContext, ValidatedQueryContext } from '../env';
 import { cleanJwtCookie } from '../routes/auth-middleware';
 import AlbumService from '../services/album-service';
 import R2Service from '../services/r2-service';
 import { PhotoResponse, PhotosRequest, RenamePhotoRequest } from '../types';
+import { MovePhotosRequest, UploadPhotoQuery } from '../types/api-response';
 import { Album } from '../types/album';
 import { UserPermission } from '../types/user-permission';
 import { buildR2Config, deleteObjects } from '../utils/helpers';
@@ -33,13 +34,17 @@ export default class PhotoController extends BaseController {
         return this.notFoundError(c, 'Album does not exist');
       }
 
-      // Check authorization for private albums
+      // Check authorization for unlisted albums
       const accessError = await this.checkAlbumAccess(c, album);
       if (accessError) {
         return accessError;
       }
 
-      const folderNameKey = decodeURIComponent(albumId) + '/';
+      // No decodeURIComponent: Hono has already decoded the path param, so decoding
+      // again would turn a literal `%2F` in an album id into a `/` and let the R2 Prefix
+      // escape the album's own folder. The album must exist under the once-decoded id
+      // anyway, since that is what `getById` above matched.
+      const folderNameKey = albumId + '/';
       const photos = await r2Service.findAll({
         Prefix: folderNameKey,
         Bucket: bucketName,
@@ -64,7 +69,7 @@ export default class PhotoController extends BaseController {
    * @returns Error Response if access is denied, otherwise void
    */
   private async checkAlbumAccess(c: Context<HonoEnv>, album: Album): Promise<Response | void> {
-    if (!album.isPrivate) {
+    if (!album.isUnlisted) {
       return;
     }
 
@@ -122,13 +127,12 @@ export default class PhotoController extends BaseController {
     });
   }
 
-  create = async (c: Context<HonoEnv>) => {
+  create = async (c: ValidatedQueryContext<UploadPhotoQuery>) => {
     const albumId = c.req.param('albumId');
-    const filename = c.req.query('filename');
-    const mimeType = c.req.query('mimeType');
+    const { filename, mimeType } = c.req.valid('query');
 
-    if (!filename || !mimeType) {
-      return this.fail(c, 'Filename and mimeType are required in query parameters');
+    if (!albumId || /[/\\]/.test(albumId) || albumId === '.' || albumId === '..') {
+      return this.clientError(c, 'Invalid album ID');
     }
 
     const r2Config = buildR2Config(c.env);
@@ -153,8 +157,11 @@ export default class PhotoController extends BaseController {
   /**
    * Move photos to another album
    */
-  update = async (c: Context<HonoEnv>) => {
-    const { destinationAlbumId, albumId, photoKeys } = await c.req.json<PhotosRequest>();
+  update = async (c: ValidatedJsonContext<MovePhotosRequest>) => {
+    // destinationAlbumId is required by MovePhotosRequestSchema, so it cannot be
+    // undefined here - which would otherwise copy to an `undefined/` prefix and then
+    // delete the originals.
+    const { destinationAlbumId, albumId, photoKeys } = c.req.valid('json');
     const r2Config = buildR2Config(c.env);
     const r2Service = new R2Service(r2Config);
     const bucketName = c.env.R2_BUCKET_NAME;
@@ -201,8 +208,8 @@ export default class PhotoController extends BaseController {
     }
   };
 
-  rename = async (c: Context<HonoEnv>) => {
-    const { albumId, newPhotoKey, currentPhotoKey } = await c.req.json<RenamePhotoRequest>();
+  rename = async (c: ValidatedJsonContext<RenamePhotoRequest>) => {
+    const { albumId, newPhotoKey, currentPhotoKey } = c.req.valid('json');
     const r2Config = buildR2Config(c.env);
     const r2Service = new R2Service(r2Config);
     const bucketName = c.env.R2_BUCKET_NAME;
@@ -235,8 +242,8 @@ export default class PhotoController extends BaseController {
     }
   };
 
-  delete = async (c: Context<HonoEnv>) => {
-    const { albumId, photoKeys } = await c.req.json<PhotosRequest>();
+  delete = async (c: ValidatedJsonContext<PhotosRequest>) => {
+    const { albumId, photoKeys } = c.req.valid('json');
 
     const photoKeysArray = photoKeys.map((photoKey) => `${albumId}/${photoKey}`);
     try {

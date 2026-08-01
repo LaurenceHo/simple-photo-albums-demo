@@ -25,8 +25,11 @@ export const PhotoService = {
       mimeType: file.type,
     });
 
+    // POST, not GET: this mints a presigned upload credential, so it must not present as
+    // a safe method. The server's verifyOrigin CSRF check skips GET/HEAD/OPTIONS, so as a
+    // GET this endpoint was exempt from it.
     const response = await BaseApiRequestService.perform(
-      'GET',
+      'POST',
       `${ApiBaseUrl}/photos/upload/${albumId}?${queryParams.toString()}`,
     );
 

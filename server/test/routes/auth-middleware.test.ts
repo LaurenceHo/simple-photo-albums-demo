@@ -43,7 +43,11 @@ describe('auth-middleware', () => {
       expect(setCookieHeader).toContain('jwt=test-token-value');
       expect(setCookieHeader).toContain('HttpOnly');
       expect(setCookieHeader).toContain('Secure');
-      expect(setCookieHeader).toContain('SameSite=None');
+      // Lax, not None: None makes the cookie eligible for every cross-site request.
+      // Requires the UI and API to share a registrable domain - see
+      // AUTH_COOKIE_SAME_SITE in src/routes/auth-middleware.ts.
+      expect(setCookieHeader).toContain('SameSite=Lax');
+      expect(setCookieHeader).not.toContain('SameSite=None');
       expect(res.headers.get('cache-control')).toBe('private');
     });
   });

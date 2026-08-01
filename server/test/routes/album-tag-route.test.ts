@@ -31,6 +31,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
         return c.json({ message: 'Authentication failed. Please login.' }, 401);
       }
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => {
       if (mockAuth) {
         await next();

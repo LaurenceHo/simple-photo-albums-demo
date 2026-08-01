@@ -29,24 +29,24 @@ describe('AggregationService', () => {
   /* getAlbumsWithLocation                                               */
   /* ------------------------------------------------------------------ */
   describe('getAlbumsWithLocation', () => {
-    it('should exclude private albums when includePrivate is false', async () => {
+    it('should exclude unlisted albums when includeUnlisted is false', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
       await service.getAlbumsWithLocation(false);
 
       const sql = mockDb.prepare.mock.calls[0][0] as string;
       expect(sql).toContain("place IS NOT NULL AND place != ''");
-      expect(sql).toContain('AND isPrivate = 0');
+      expect(sql).toContain('AND isUnlisted = 0');
     });
 
-    it('should include private albums when includePrivate is true', async () => {
+    it('should include unlisted albums when includeUnlisted is true', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
       await service.getAlbumsWithLocation(true);
 
       const sql = mockDb.prepare.mock.calls[0][0] as string;
       expect(sql).toContain("place IS NOT NULL AND place != ''");
-      expect(sql).not.toContain('isPrivate');
+      expect(sql).not.toContain('isUnlisted');
     });
 
     it('should map results through mapAlbum', async () => {
@@ -57,7 +57,7 @@ describe('AggregationService', () => {
             tags: '["travel"]',
             place:
               '{"displayName":"Tokyo","formattedAddress":"Tokyo, Japan","location":{"latitude":35.6,"longitude":139.7}}',
-            isPrivate: 0,
+            isUnlisted: 0,
           },
         ],
       });
@@ -66,7 +66,7 @@ describe('AggregationService', () => {
 
       expect(result[0].tags).toEqual(['travel']);
       expect(result[0].place?.displayName).toBe('Tokyo');
-      expect(result[0].isPrivate).toBe(false);
+      expect(result[0].isUnlisted).toBe(false);
     });
 
     it('should return empty array when results is null', async () => {
@@ -85,10 +85,31 @@ describe('AggregationService', () => {
     it('should query for isFeatured = 1', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
-      await service.getFeaturedAlbums();
+      await service.getFeaturedAlbums(true);
 
       const sql = mockDb.prepare.mock.calls[0][0] as string;
       expect(sql).toContain('WHERE isFeatured = 1');
+    });
+
+    // This endpoint is reachable anonymously, so a missing isUnlisted filter published
+    // every unlisted featured album - name, description, place coordinates and cover key.
+    it('should exclude unlisted albums when includeUnlisted is false', async () => {
+      mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
+
+      await service.getFeaturedAlbums(false);
+
+      const sql = mockDb.prepare.mock.calls[0][0] as string;
+      expect(sql).toContain('WHERE isFeatured = 1');
+      expect(sql).toContain('AND isUnlisted = 0');
+    });
+
+    it('should include unlisted albums when includeUnlisted is true', async () => {
+      mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
+
+      await service.getFeaturedAlbums(true);
+
+      const sql = mockDb.prepare.mock.calls[0][0] as string;
+      expect(sql).not.toContain('isUnlisted');
     });
 
     it('should map results through mapAlbum', async () => {
@@ -96,7 +117,7 @@ describe('AggregationService', () => {
         results: [{ id: '1', tags: null, isFeatured: 1 }],
       });
 
-      const result = await service.getFeaturedAlbums();
+      const result = await service.getFeaturedAlbums(true);
 
       expect(result[0].tags).toEqual([]);
       expect(result[0].isFeatured).toBe(true);
@@ -105,7 +126,7 @@ describe('AggregationService', () => {
     it('should return empty array when no featured albums', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
-      const result = await service.getFeaturedAlbums();
+      const result = await service.getFeaturedAlbums(true);
 
       expect(result).toEqual([]);
     });
@@ -115,17 +136,17 @@ describe('AggregationService', () => {
   /* getCountAlbumsByYear                                                */
   /* ------------------------------------------------------------------ */
   describe('getCountAlbumsByYear', () => {
-    it('should exclude private albums when includePrivate is false', async () => {
+    it('should exclude unlisted albums when includeUnlisted is false', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
       await service.getCountAlbumsByYear(false);
 
       const sql = mockDb.prepare.mock.calls[0][0] as string;
-      expect(sql).toContain('WHERE isPrivate = 0');
+      expect(sql).toContain('WHERE isUnlisted = 0');
       expect(sql).toContain('GROUP BY year ORDER BY year DESC');
     });
 
-    it('should include all albums when includePrivate is true', async () => {
+    it('should include all albums when includeUnlisted is true', async () => {
       mockDb._stmt.all.mockResolvedValueOnce({ results: [] });
 
       await service.getCountAlbumsByYear(true);
@@ -240,7 +261,7 @@ describe('AggregationService', () => {
             tags: '[]',
             place:
               '{"displayName":"X","formattedAddress":"X","location":{"latitude":0,"longitude":0}}',
-            isPrivate: 1,
+            isUnlisted: 1,
             isFeatured: 0,
           },
         ],
@@ -248,7 +269,7 @@ describe('AggregationService', () => {
 
       const [album] = await service.getAlbumsWithLocation(true);
 
-      expect(album.isPrivate).toBe(true);
+      expect(album.isUnlisted).toBe(true);
       expect(album.isFeatured).toBe(false);
     });
 
@@ -266,7 +287,7 @@ describe('AggregationService', () => {
 
       const [album] = await service.getAlbumsWithLocation(true);
 
-      expect(album.isPrivate).toBeUndefined();
+      expect(album.isUnlisted).toBeUndefined();
       expect(album.isFeatured).toBeUndefined();
     });
   });

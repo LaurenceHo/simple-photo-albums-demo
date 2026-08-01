@@ -8,7 +8,7 @@ export const mockAlbums: Album[] = [
     albumName: '2024 demo album5 super long long long album name',
     description: 'Some test photos',
     albumCover: 'demo-album5/batch_2017-05-14 13.15.16.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Tokyo, Japan',
@@ -27,7 +27,7 @@ export const mockAlbums: Album[] = [
     albumName: 'This is demo album 4',
     description: 'This is an album description',
     albumCover: 'demo-album-4/2026-01-02_08.44.59.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Valencia, Spain',
@@ -46,7 +46,7 @@ export const mockAlbums: Album[] = [
     albumName: '1 demo-album 1',
     description: 'This is demo album 1',
     albumCover: 'demo-album1/batch_flamingo-8353373.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Venice, Metropolitan City of Venice, Italy',
@@ -65,7 +65,7 @@ export const mockAlbums: Album[] = [
     albumName: 'demo-album 2',
     description: 'This is demo album 2',
     albumCover: 'demo-album2/batch_bird-8360220.jpg',
-    isPrivate: false,
+    isUnlisted: false,
     isFeatured: true,
     place: {
       formattedAddress: 'Honolulu, HI, USA',

@@ -1,8 +1,9 @@
 import { DeleteObjectsCommandInput, PutObjectCommandInput } from '@aws-sdk/client-s3';
 import { Context } from 'hono';
-import { getCookie, setCookie } from 'hono/cookie';
+import { getCookie } from 'hono/cookie';
 import { get } from 'radash';
 import { Bindings, HonoEnv } from '../env';
+import { clearJwtCookie } from '../routes/auth-middleware';
 import R2Service, { R2Config } from '../services/r2-service';
 import { verifyJwt } from './jwt';
 
@@ -107,7 +108,9 @@ export const verifyIfIsAdmin = async (c: Context<HonoEnv>) => {
       isAdmin = get(decodedPayload, 'role') === 'admin';
     } catch (error) {
       console.error('JWT verification failed in verifyIfIsAdmin:', error);
-      setCookie(c, 'jwt', '', { maxAge: 0, path: '/' });
+      // Shared helper, so the clear attributes match the set attributes. A mismatched
+      // `secure`/`sameSite` here would leave the stale cookie in place.
+      clearJwtCookie(c);
     }
   }
   return isAdmin;

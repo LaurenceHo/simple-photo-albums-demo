@@ -57,7 +57,7 @@ describe('AlbumStore', () => {
     const store = useAlbumStore();
     expect(store.selectedYear).toBe('na');
     expect(store.filterState.searchKey).toBe('');
-    expect(store.filterState.privateOnly).toBe(false);
+    expect(store.filterState.unlistedOnly).toBe(false);
   });
 
   it('should update selectedYear', () => {
@@ -75,10 +75,10 @@ describe('AlbumStore', () => {
   it('should clear filters', () => {
     const store = useAlbumStore();
     store.setSearchKey('test');
-    store.setPrivateOnly(true);
+    store.setUnlistedOnly(true);
     store.clearFilters();
     expect(store.filterState.searchKey).toBe('');
-    expect(store.filterState.privateOnly).toBe(false);
+    expect(store.filterState.unlistedOnly).toBe(false);
   });
 
   it('should set current album', () => {

@@ -34,6 +34,57 @@ describe('D1Service', () => {
   });
 
   /* ------------------------------------------------------------------ */
+  /* SQL identifier safety                                               */
+  /* ------------------------------------------------------------------ */
+  describe('column name validation', () => {
+    // D1 cannot parameterise identifiers, so column names reach the SQL text. An object
+    // key such as "isFeatured = 1, description" would otherwise become part of the SET
+    // clause verbatim, writing columns the request schema never declared.
+    const injectionKeys = [
+      'isFeatured = 1, description',
+      'name = ?, active',
+      'name; DROP TABLE test_table; --',
+      'name) --',
+      '1name',
+      '',
+      'a b',
+    ];
+
+    it.each(injectionKeys)('should reject %j as a column name on update', async (key) => {
+      await expect(
+        service.update('id-1', { [key]: 'value' } as unknown as Partial<TestEntity>),
+      ).rejects.toThrow(/Invalid column name/);
+      expect(mockDb.prepare).not.toHaveBeenCalled();
+    });
+
+    it.each(injectionKeys)('should reject %j as a column name on create', async (key) => {
+      await expect(
+        service.create({ [key]: 'value' } as unknown as TestEntity),
+      ).rejects.toThrow(/Invalid column name/);
+      expect(mockDb.prepare).not.toHaveBeenCalled();
+    });
+
+    it('should reject an injected column name in a where clause', async () => {
+      await expect(
+        service.findAll({ 'id = ? OR 1=1 --': 'x' } as unknown as Partial<TestEntity>),
+      ).rejects.toThrow(/Invalid column name/);
+    });
+
+    it('should reject an unsafe table name at construction', () => {
+      expect(
+        () => new D1Service(mockDb as unknown as D1Database, 'test_table; DROP TABLE x'),
+      ).toThrow(/Invalid column name/);
+    });
+
+    it('should still accept ordinary identifiers', async () => {
+      await service.update('id-1', { name: 'ok', active: true });
+
+      const sql = mockDb.prepare.mock.calls[0][0] as string;
+      expect(sql).toBe('UPDATE test_table SET name = ?, active = ? WHERE id = ?');
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
   /* getAll                                                              */
   /* ------------------------------------------------------------------ */
   describe('getAll', () => {

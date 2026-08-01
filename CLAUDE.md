@@ -54,6 +54,31 @@ You are very experienced with CloudFlare and AWS services and how you might inte
 - D1 schema changes go in `server/migrations/` and are applied by hand: `wrangler d1 execute <db-name> --local|--remote --file=./migrations/<file>.sql`.
 - `.husky/pre-push` runs `type-check`, `lint`, and `test:all` — a push fails if any of them do.
 
+# This repository is PUBLIC — never commit private identifiers
+
+**Hard rule, no exceptions.** Real infrastructure identifiers must never appear in any
+tracked file, code comment, commit message, PR title/body, or PR comment:
+
+- custom domains and any of their subdomains
+- R2 bucket names
+- Worker names and Cloudflare Pages project names
+- Cloudflare account IDs, D1 database names and IDs
+
+Use placeholders instead — `example.com`, `<prod-bucket>`, `<worker-name>`, `<db-name>`.
+Real values belong in GitHub environment secrets, in `server/wrangler.toml` and
+`server/.dev.vars` (both gitignored), never in the repo.
+
+This applies even when the value is not a secret and even when documenting it would be
+genuinely useful. "It's only a bucket name" is not a reason to commit it — the owner does
+not want personal infrastructure tied to this project in public.
+
+- When **reviewing** a diff, treat a real hostname/bucket/worker name as a finding to
+  raise, not as documentation to keep.
+- Never ask for a real hostname to be pasted into a PR comment or a code comment. Record
+  the property ("the UI and API share a registrable domain"), never the value.
+- `.husky/pre-commit` enforces this from `.private-strings` (gitignored; copy
+  `.private-strings.example` to create it). Do not defeat it with `--no-verify`.
+
 # Overall guidelines
 
 - Assume that the user is a junior developer.
@@ -72,4 +97,5 @@ Ask clarifying questions if the bug's source is ambiguous.
 
 # Git
 
-- NEVER put your name in the commit message as co-author when committing any code.
+- Start a new branch before doing the work. NEVER put your name in the commit message as co-author when committing any code.
+- NEVER put your name in the PR.

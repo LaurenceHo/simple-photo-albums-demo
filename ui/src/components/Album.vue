@@ -11,10 +11,15 @@
         :src="`${thumbnail}?tr=w-${thumbnailSize},h-${thumbnailSize}`"
       />
       <NoImagePlaceholder v-else :icon-size="30" :size="thumbnailSize" />
-      <IconLock
-        v-if="albumItem?.isPrivate"
+      <!-- Eye-off, not a padlock: unlisted hides the album from the site, it does not
+           make its photos confidential. A lock would imply otherwise. -->
+      <IconEyeOff
+        v-if="albumItem?.isUnlisted"
+        v-tooltip="'This album is unlisted'"
         :size="20"
+        aria-label="Unlisted album"
         class="absolute top-1 left-1 text-gray-300"
+        role="img"
       />
       <IconStarFilled
         v-if="albumItem?.isFeatured"
@@ -53,7 +58,7 @@ import useDevice from '@/composables/use-device';
 import type { Album } from '@/schema';
 import { useUserConfigStore } from '@/stores';
 import { initialAlbum } from '@/stores/album';
-import { IconLock, IconStarFilled } from '@tabler/icons-vue';
+import { IconEyeOff, IconStarFilled } from '@tabler/icons-vue';
 import { storeToRefs } from 'pinia';
 import Tag from 'primevue/tag';
 import { computed, toRefs } from 'vue';

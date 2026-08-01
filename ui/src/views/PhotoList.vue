@@ -53,11 +53,15 @@
               />
             </div>
           </Popover>
-          <IconLock
-            v-if="currentAlbum?.isPrivate"
-            v-tooltip="'This is a private album'"
+          <!-- Eye-off, not a padlock: unlisted hides the album from the site, it does
+               not make its photos confidential. A lock would imply otherwise. -->
+          <IconEyeOff
+            v-if="currentAlbum?.isUnlisted"
+            v-tooltip="'This album is unlisted'"
             :size="24"
+            aria-label="Unlisted album"
             class="text-surface-900 dark:text-surface-300 ml-2"
+            role="img"
           />
           <IconStar
             v-else-if="currentAlbum?.isFeatured"
@@ -232,7 +236,7 @@ import {
   IconFileExport,
   IconLayoutGrid,
   IconList,
-  IconLock,
+  IconEyeOff,
   IconMap2,
   IconPhotoUp,
   IconStar,

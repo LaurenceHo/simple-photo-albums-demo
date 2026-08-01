@@ -19,7 +19,9 @@ jobs:
       D1_PHOTO_ALBUMS_WORKER: ${{ secrets.D1_PHOTO_ALBUMS_WORKER }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Used by envsubst in Configure Wrangler
+      # Used by envsubst in Configure Wrangler. These resolve against the `dev`
+      # environment declared above, so they carry demo values. R2_BUCKET_NAME on `dev`
+      # must name a bucket separate from production's.
       ALBUM_URL: ${{ vars.ALBUM_URL }}
       VITE_IMAGEKIT_CDN_URL: ${{ vars.VITE_IMAGEKIT_CDN_URL }}
       R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
@@ -29,7 +31,6 @@ jobs:
       # Dummy values for Prod vars to satisfy wrangler.toml validation
       PROD_PHOTO_ALBUMS_DB_NAME: 'PROD_PHOTO_ALBUMS_DB_NAME'
       PROD_PHOTO_ALBUMS_DB_ID: 'PROD_PHOTO_ALBUMS_DB_ID'
-      DEVELOPMENT: 'true'
 
     steps:
       - uses: actions/checkout@v5
@@ -44,6 +45,15 @@ jobs:
       - name: Configure Wrangler
         run: |
           cd "$GITHUB_WORKSPACE/server"
+          # An unset secret substitutes to an empty string, which would deploy a Worker
+          # bound to a nameless bucket or an empty CORS origin. Fail before that happens.
+          for required in R2_BUCKET_NAME ALBUM_URL VITE_IMAGEKIT_CDN_URL \
+                          DEV_PHOTO_ALBUMS_DB_NAME DEV_PHOTO_ALBUMS_DB_ID; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is not set on the 'dev' environment." >&2
+              exit 1
+            fi
+          done
           envsubst < wrangler.ci.toml > wrangler.tmp.toml
           mv wrangler.tmp.toml wrangler.toml
 
@@ -51,19 +61,37 @@ jobs:
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          # Do NOT use real secrets in dev environment - these are dummy values for demo app
-          VITE_GOOGLE_CLIENT_ID: 'VITE_GOOGLE_CLIENT_ID'
-          GOOGLE_PLACES_API_KEY: 'GOOGLE_PLACES_API_KEY'
-          JWT_SECRET: 'JWT_SECRET'
-          RAPIDAPI_KEY: 'RAPIDAPI_KEY'
+          # JWT_SECRET must be a real, random, high-entropy value even in the demo
+          # environment. The demo Worker is publicly reachable and this repository is
+          # public, so a hardcoded placeholder here is a publicly known HS256 signing
+          # key - anyone could forge an admin session. Set a unique random value on the
+          # `dev` GitHub environment; it must NOT match the production secret.
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # These three gate features that are intentionally non-functional in the demo
+          # (no Google login, no Places lookup, no flight lookup). Unlike JWT_SECRET, a
+          # placeholder grants no authority - it only makes the upstream call fail.
+          VITE_GOOGLE_CLIENT_ID: 'unused-in-demo'
+          GOOGLE_PLACES_API_KEY: 'unused-in-demo'
+          RAPIDAPI_KEY: 'unused-in-demo'
         run: |
           cd "$GITHUB_WORKSPACE/server"
-          echo $R2_ACCESS_KEY | bunx wrangler versions secret put R2_ACCESS_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo $R2_SECRET_KEY | bunx wrangler versions secret put R2_SECRET_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "VITE_GOOGLE_CLIENT_ID" | bunx wrangler versions secret put VITE_GOOGLE_CLIENT_ID --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "GOOGLE_PLACES_API_KEY" | bunx wrangler versions secret put GOOGLE_PLACES_API_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "JWT_SECRET" | bunx wrangler versions secret put JWT_SECRET --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
-          echo "RAPIDAPI_KEY" | bunx wrangler versions secret put RAPIDAPI_KEY --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          # An empty value here deploys a Worker that cannot sign sessions or reach R2,
+          # which fails at request time rather than at deploy time.
+          for required in JWT_SECRET R2_ACCESS_KEY R2_SECRET_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is not set on the 'dev' environment. Refusing to deploy." >&2
+              exit 1
+            fi
+          done
+          put_secret() {
+            printf '%s' "$2" | bunx wrangler versions secret put "$1" --name "$D1_PHOTO_ALBUMS_WORKER" --env=""
+          }
+          put_secret R2_ACCESS_KEY "$R2_ACCESS_KEY"
+          put_secret R2_SECRET_KEY "$R2_SECRET_KEY"
+          put_secret VITE_GOOGLE_CLIENT_ID "$VITE_GOOGLE_CLIENT_ID"
+          put_secret GOOGLE_PLACES_API_KEY "$GOOGLE_PLACES_API_KEY"
+          put_secret JWT_SECRET "$JWT_SECRET"
+          put_secret RAPIDAPI_KEY "$RAPIDAPI_KEY"
 
       - name: Deploy Cloudflare Worker
         run: |

@@ -1,0 +1,18 @@
+-- Rename albums.isPrivate to albums.isUnlisted.
+--
+-- The flag has always meant "hide this album from the site's listings and aggregates",
+-- not "keep these photos confidential". Whether the stored objects are reachable directly
+-- is a property of the bucket's public-access configuration, not of this column.
+--
+-- The old name read as an access control, which invited hardening work that fought the
+-- design. `isUnlisted` says what it does.
+--
+-- SQLite supports RENAME COLUMN from 3.25 onwards, so this preserves the data and any
+-- index on the column rather than requiring a table rebuild.
+--
+-- To roll back: revert the Worker to a build that queries isPrivate, then run
+--   ALTER TABLE albums RENAME COLUMN isUnlisted TO isPrivate;
+-- The database has to go back too - a reverted Worker against a renamed column fails
+-- every album and aggregate query, which is the same breakage as deploying forward
+-- without having applied this migration.
+ALTER TABLE albums RENAME COLUMN isPrivate TO isUnlisted;

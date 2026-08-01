@@ -15,7 +15,7 @@ vi.mock('../../src/services/album-service', () => ({
         return { id, albumName: 'Existing' };
       }
       if (id === 'existing-album') {
-        return { id, albumName: 'Existing', tags: [], isPrivate: false };
+        return { id, albumName: 'Existing', tags: [], isUnlisted: false };
       }
       return null;
     }
@@ -53,6 +53,9 @@ vi.mock('../../src/routes/auth-middleware', async () => {
       c.set('user', { role: 'admin', email: 'admin@test.com' });
       await next();
     }),
+    // Global middleware in src/index.ts; a pass-through keeps route tests focused.
+    verifyOrigin: createMiddleware(async (c, next) => await next()),
+    clearJwtCookie: () => {},
     verifyUserPermission: createMiddleware(async (c, next) => await next()),
     optionalVerifyJwtClaim: createMiddleware(async (c, next) => await next()),
   };
@@ -106,7 +109,7 @@ describe('Album route - error paths', () => {
       id: 'new-album',
       year: '2024',
       albumName: 'Test',
-      isPrivate: false,
+      isUnlisted: false,
     };
 
     it('should return 409 when album already exists', async () => {
@@ -166,7 +169,7 @@ describe('Album route - error paths', () => {
       id: 'test-album',
       year: '2024',
       albumName: 'Updated',
-      isPrivate: true,
+      isUnlisted: true,
     };
 
     it('should return 500 when service throws during update', async () => {

@@ -1,7 +1,12 @@
 import { Context } from 'hono';
-import { HonoEnv } from '../env';
+import { HonoEnv, ValidatedJsonContext } from '../env';
 import AlbumService from '../services/album-service';
 import { Album } from '../types/album';
+import {
+  CreateAlbumRequest,
+  DeleteAlbumRequest,
+  UpdateAlbumRequest,
+} from '../types/request-schemas';
 import { UserPermission } from '../types/user-permission';
 import { buildR2Config, emptyR2Folder, uploadObject, verifyIfIsAdmin } from '../utils/helpers';
 import { BaseController } from './base-controller';
@@ -16,7 +21,7 @@ export default class AlbumController extends BaseController {
 
       const query: any = { year };
       if (!isAdmin) {
-        query.isPrivate = 0;
+        query.isUnlisted = 0;
       }
 
       const albumList = await albumService.getAll(query);
@@ -28,13 +33,17 @@ export default class AlbumController extends BaseController {
     }
   };
 
-  create = async (c: Context<HonoEnv>) => {
-    const album = await c.req.json<Album>();
+  create = async (c: ValidatedJsonContext<CreateAlbumRequest>) => {
     const user = c.get('user') as UserPermission;
-    album.createdBy = user?.email ?? 'unknown';
-    album.updatedBy = user?.email ?? 'unknown';
-    album.createdAt = new Date().toISOString();
-    album.updatedAt = new Date().toISOString();
+    const now = new Date().toISOString();
+    // c.req.valid, not c.req.json: the validated output has unknown keys stripped.
+    const album: Album = {
+      ...c.req.valid('json'),
+      createdBy: user?.email ?? 'unknown',
+      updatedBy: user?.email ?? 'unknown',
+      createdAt: now,
+      updatedAt: now,
+    };
     const albumService = new AlbumService(c.env.DB);
 
     try {
@@ -55,16 +64,24 @@ export default class AlbumController extends BaseController {
     }
   };
 
-  update = async (c: Context<HonoEnv>) => {
+  update = async (c: ValidatedJsonContext<UpdateAlbumRequest>) => {
     try {
-      const album = await c.req.json<Album>();
       const user = c.get('user') as UserPermission;
-      album.updatedBy = user?.email ?? 'unknown';
-      album.updatedAt = new Date().toISOString();
+      // `id` is the WHERE key, not a SET field - same pattern as
+      // travel-record-controller.ts. Leaving it in produced `SET id = ? ... WHERE id = ?`,
+      // rewriting the primary key with its own value on every update.
+      const { id, ...rest } = c.req.valid('json');
+      // Partial, not Album: the schema omits createdAt/createdBy, and leaving them
+      // absent means `D1Service.update` skips them, preserving the stored values.
+      const album: Partial<Album> = {
+        ...rest,
+        updatedBy: user?.email ?? 'unknown',
+        updatedAt: new Date().toISOString(),
+      };
 
       const albumService = new AlbumService(c.env.DB);
 
-      await albumService.update(album.id, album);
+      await albumService.update(id, album);
 
       return this.ok(c, 'Album updated');
     } catch (err: any) {
@@ -73,9 +90,9 @@ export default class AlbumController extends BaseController {
     }
   };
 
-  delete = async (c: Context<HonoEnv>) => {
+  delete = async (c: ValidatedJsonContext<DeleteAlbumRequest>) => {
     try {
-      const requestBody = await c.req.json<{ id: string; year: string }>();
+      const requestBody = c.req.valid('json');
       console.log('##### Delete album: %s', requestBody.id);
       const albumService = new AlbumService(c.env.DB);
 
