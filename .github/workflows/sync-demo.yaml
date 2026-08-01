@@ -48,6 +48,15 @@ jobs:
           # Full history. A shallow clone cannot be pushed to another remote, and the
           # bootstrap scan below needs every commit.
           fetch-depth: 0
+          # Without this, checkout leaves GITHUB_TOKEN in .git/config as
+          #   http.https://github.com/.extraheader = AUTHORIZATION: basic <...>
+          # That header applies to *every* github.com HTTPS push, and an Authorization
+          # header beats credentials embedded in a remote URL - so the mirror push
+          # authenticates as github-actions[bot] instead of DEMO_REPO_TOKEN and fails with
+          #   remote: Permission to <demo repo> denied to github-actions[bot].
+          # Nothing here needs the persisted credentials: the clone is already done, and
+          # the only push goes to a different remote with its own token.
+          persist-credentials: false
 
       - name: Refuse to publish anything matching a private identifier
         env:
@@ -168,6 +177,15 @@ jobs:
         run: |
           if [ -z "$TOKEN" ]; then
             echo "::error::DEMO_REPO_TOKEN is not set." >&2
+            exit 1
+          fi
+
+          # Guard against the checkout step regaining `persist-credentials: true`. The
+          # header it writes overrides the token in the remote URL, and the resulting
+          # failure ("denied to github-actions[bot]") points at the token rather than at
+          # the real cause. Name it here instead.
+          if git config --get-all http.https://github.com/.extraheader >/dev/null 2>&1; then
+            echo "::error::checkout persisted credentials; the push would authenticate as github-actions[bot], not DEMO_REPO_TOKEN. Set persist-credentials: false on actions/checkout." >&2
             exit 1
           fi
 
