@@ -1,0 +1,189 @@
+name: Mirror master to public demo repo
+
+# Pushes `master` to the public `simple-photo-albums-demo` repo so the code can be shown to
+# people without making this repo public.
+#
+# A plain push, not a squash: master's history was purged of private identifiers and is
+# verified clean on every run, so the full commit history is safe to publish.
+#
+# Automating this means anything reaching master becomes public with nobody in the loop.
+# The scan below therefore has one job - never pass by accident. Every failure mode it can
+# detect aborts the run, including its own misconfiguration.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Two merges in quick succession would otherwise race, and the loser fails as a
+# non-fast-forward that reads like the mirror diverged. Queue rather than cancel: a
+# cancelled run's commits would never get scanned individually.
+concurrency:
+  group: mirror-public-repo
+  cancel-in-progress: false
+
+# Deliberately no path filter: every merge to master syncs, not only source changes.
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # The push to the mirror authenticates with a deploy key, so GITHUB_TOKEN needs
+    # nothing beyond reading this repo.
+    permissions:
+      contents: read
+    steps:
+      - name: Only master may be mirrored
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          # workflow_dispatch lets any ref be chosen in the UI, and the push step below
+          # would publish it as the mirror's master. Fail rather than skip - a skipped
+          # job reports green.
+          if [ "$REF" != "refs/heads/master" ]; then
+            echo "::error::Refusing to mirror $REF - only master may be published." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          # Full history. A shallow clone cannot be pushed to another remote, and the
+          # bootstrap scan below needs every commit.
+          fetch-depth: 0
+
+      - name: Refuse to publish anything matching a private identifier
+        env:
+          # Same patterns as the gitignored `.private-strings` used by
+          # `.husky/pre-commit`. Held as a secret so the list of values being protected
+          # is not itself committed.
+          PATTERNS: ${{ secrets.PRIVATE_STRING_PATTERNS }}
+        run: |
+          if [ -z "$PATTERNS" ]; then
+            echo "::error::PRIVATE_STRING_PATTERNS is not set. Refusing to publish unscanned code." >&2
+            exit 1
+          fi
+
+          PATTERN_FILE="$RUNNER_TEMP/patterns.txt"
+          # `tr -d '\r'`: GitHub's secret textarea submits CRLF. A trailing CR would become
+          # part of every pattern and match nothing against LF blobs - a scan that reports
+          # success while checking nothing, which is the worst possible failure here.
+          # `grep -v`: a blank line in a `grep -f` file matches EVERY line, which would
+          # block every push instead. Both are silent, so both are stripped.
+          printf '%s\n' "$PATTERNS" | tr -d '\r' | grep -vE '^[[:space:]]*(#|$)' >"$PATTERN_FILE" || true
+          if [ ! -s "$PATTERN_FILE" ]; then
+            echo "::error::PRIVATE_STRING_PATTERNS contains no usable patterns. Refusing to publish." >&2
+            exit 1
+          fi
+          # A count, never the patterns themselves. Makes a truncated or stale secret
+          # visible - the `-s` check above only proves the file is not empty, and one
+          # surviving pattern out of several would still pass it.
+          echo "Patterns loaded: $(wc -l <"$PATTERN_FILE")"
+
+          fail() { echo "::error::$1 Not publishing." >&2; exit 1; }
+
+          # grep exits 0=match, 1=no match, >=2=error; git grep uses 128 for error. Writing
+          # this as `if grep ...; then` would read an error as "no match" and publish
+          # unscanned, so the status is captured and anything outside {0,1} is fatal. One
+          # malformed regex in a secret nobody can lint must not disable the guard.
+          #
+          # `rc=0; cmd || rc=$?`, NOT `cmd; rc=$?`. Actions runs this as `bash -e {0}`, and
+          # under errexit a bare command returning 1 - the clean case - kills the shell
+          # before the assignment ever runs. That form fails closed, but silently and on
+          # every clean run, and the obvious cures for it (`|| true`, `set +e`) reinstate
+          # exactly the fail-open behaviour this guard exists to prevent.
+          #
+          # Diagnostics are discarded: git grep echoes the offending pattern verbatim.
+          scan_file() { # $1 = file to search, $2 = description
+            rc=0
+            grep -q -a -i -E -f "$PATTERN_FILE" "$1" 2>/dev/null || rc=$?
+            case $rc in
+              0) fail "$2 contains a private identifier." ;;
+              1) : ;;
+              *) fail "Scan failed (grep exit $rc) - PRIVATE_STRING_PATTERNS likely has an invalid regex." ;;
+            esac
+          }
+
+          # Contents of the tree about to become public.
+          rc=0
+          git grep -q -i -E -f "$PATTERN_FILE" HEAD 2>/dev/null || rc=$?
+          case $rc in
+            0) fail "Tracked files at HEAD contain a private identifier." ;;
+            1) : ;;
+            *) fail "Scan failed (git grep exit $rc) - PRIVATE_STRING_PATTERNS likely has an invalid regex." ;;
+          esac
+
+          # Filenames too. `git grep` searches contents only, but `.husky/pre-commit`
+          # deliberately covers paths as well, and a path can carry an identifier.
+          git ls-tree -r --name-only HEAD >"$RUNNER_TEMP/names.txt"
+          scan_file "$RUNNER_TEMP/names.txt" "A tracked filename at HEAD"
+
+          # The whole history, every run - not just the commits this push added.
+          #
+          # An incremental scan looks cheaper but is wrong: `git push` publishes every
+          # commit reachable from HEAD, not the increment. On the first run the mirror is
+          # empty, so a range scan would check one commit while shipping all of them, and
+          # the same hole reopens whenever the mirror falls behind or is recreated.
+          # Deriving the range from `github.event.before` also meant handling an
+          # unreachable previous SHA after a force-push and an empty one on
+          # workflow_dispatch; none of that is needed now.
+          #
+          # `git log -p`, not `git diff`: diff compares two endpoint trees and cannot see a
+          # value added and removed in between, which still ships in the history.
+          #
+          # `--cc` so merge commits are not skipped. `git log -p` shows no diff for a merge
+          # by default, so content introduced only in a conflict resolution would ship
+          # unscanned. There are no merge commits today (squash-merge workflow), which is
+          # precisely why this is worth setting now rather than discovering later.
+          #
+          # The format carries author and committer identity as well as the message. Those
+          # travel with every commit object and would otherwise never be scanned - one
+          # commit authored from an address on the private domain would publish it.
+          echo "Scanning the full history that is about to be published..."
+          git log -p --cc --format='%H%n%an%n%ae%n%cn%n%ce%n%s%n%b' HEAD >"$RUNNER_TEMP/history.patch"
+          scan_file "$RUNNER_TEMP/history.patch" "The history being published"
+
+          # Known limitation, stated so nobody mistakes the guard for total coverage: this
+          # scans text. Identifiers rendered into an image - a diagram label, a screenshot
+          # of a browser address bar - are pixels and cannot be matched. Historical binary
+          # blobs also appear in the patch only as "Binary files ... differ". Images added
+          # to this repo need a human eye before they reach the mirror.
+
+          echo "Scan clean."
+
+      - name: Push to demo repo
+        env:
+          # Deploy key with write access on the demo repo only - narrower than a personal
+          # access token, which would reach every repo on the account.
+          SSH_KEY: ${{ secrets.DEMO_REPO_SSH_KEY }}
+        run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::DEMO_REPO_SSH_KEY is not set." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # umask, not a later chmod: the key must never exist as world-readable, even
+          # briefly. `tr -d '\r'` for the same reason as the pattern list - a key pasted
+          # through the web textarea arrives CRLF and openssl rejects it with an opaque
+          # "invalid format".
+          (umask 077; printf '%s\n' "$SSH_KEY" | tr -d '\r' >~/.ssh/id_ed25519)
+
+          # `|| rc=$?` rather than a bare call: under errexit a failed keyscan would kill
+          # the step here, and the explanatory error below would never print.
+          rc=0
+          ssh-keyscan -t ed25519 github.com >>~/.ssh/known_hosts || rc=$?
+          if [ "$rc" -ne 0 ] || [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::ssh-keyscan produced no host key (exit $rc); refusing to push." >&2
+            exit 1
+          fi
+
+          git remote add demo git@github.com:LaurenceHo/simple-photo-albums-demo.git
+          # No --force. master only ever moves forward, so a diverged mirror is a signal
+          # that something is wrong - it should fail loudly, not be overwritten.
+          #
+          # `push.followTags=false` explicitly, even though it is the default. Tags are the
+          # one thing that must never be pushed here: `backup/pre-purge` on origin points at
+          # the pre-rewrite history, which still contains the identifiers this whole exercise
+          # removed. `fetch-depth: 0` means the runner has those objects. Never add --tags,
+          # --follow-tags or --mirror to this command.
+          if ! git -c push.followTags=false push demo HEAD:refs/heads/master; then
+            echo "::error::Push rejected. If master's history was rewritten, the mirror must be force-pushed once by hand - see README, 'If the sync starts failing'." >&2
+            exit 1
+          fi

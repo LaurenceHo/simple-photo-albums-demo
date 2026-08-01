@@ -54,7 +54,11 @@ You are very experienced with CloudFlare and AWS services and how you might inte
 - D1 schema changes go in `server/migrations/` and are applied by hand: `wrangler d1 execute <db-name> --local|--remote --file=./migrations/<file>.sql`.
 - `.husky/pre-push` runs `type-check`, `lint`, and `test:all` — a push fails if any of them do.
 
-# This repository is PUBLIC — never commit private identifiers
+# Everything on `master` is PUBLISHED PUBLICLY — never commit private identifiers
+
+The repository itself is private, but `master` is mirrored to a public repo after every
+merge (see `.github/workflows/sync-demo.yaml`), so anything merged is public. Treat this as
+a public repo in every respect.
 
 **Hard rule, no exceptions.** Real infrastructure identifiers must never appear in any
 tracked file, code comment, commit message, PR title/body, or PR comment:
@@ -78,6 +82,12 @@ not want personal infrastructure tied to this project in public.
   the property ("the UI and API share a registrable domain"), never the value.
 - `.husky/pre-commit` enforces this from `.private-strings` (gitignored; copy
   `.private-strings.example` to create it). Do not defeat it with `--no-verify`.
+- `.github/workflows/sync-demo.yaml` mirrors `master` to a **public** repo after every merge,
+  so anything landing on `master` becomes public automatically. It re-runs the same scan from
+  the `PRIVATE_STRING_PATTERNS` secret and fails closed. Keep that secret in step with
+  `.private-strings` — the same list in two places, because CI cannot read a gitignored file.
+- Master's history was purged of these identifiers on 2026-08-01 (`git filter-branch`, backup
+  tag `backup/pre-purge`). Do not reintroduce them into history; the mirror publishes all of it.
 
 # Overall guidelines
 

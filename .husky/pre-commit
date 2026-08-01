@@ -2,8 +2,9 @@
 #
 # Block commits containing private infrastructure identifiers.
 #
-# This repository is public, so real domains, bucket names, worker names and account IDs
-# must never be committed - not in source, not in docs, not in code comments.
+# `master` is mirrored to a public repo after every merge, so real domains, bucket names,
+# worker names and account IDs must never be committed - not in source, not in docs, not in
+# code comments. The repo being private is not protection; anything merged is published.
 #
 # The patterns live in `.private-strings`, which is gitignored on purpose: if the list of
 # forbidden values were committed, the hook would leak exactly what it exists to protect.
@@ -21,18 +22,36 @@ PATTERNS_FILE=".private-strings"
 ADDED=$(git diff --cached --diff-filter=ACMR -U0 | sed -n 's/^+//p')
 [ -n "$ADDED" ] || exit 0
 
+# Normalise exactly as .github/workflows/sync-demo.yaml does, so the two halves of this
+# control cannot disagree about what a pattern is:
+#   tr -d '\r'  - a CRLF file leaves a trailing CR on every pattern, which then matches
+#                 nothing. The hook would report success while protecting zero values.
+#   grep -vE    - drops comments and blank lines, including indented ones. A whitespace-only
+#                 line is a regex that matches almost everything and would block every commit.
+CLEAN_PATTERNS=$(tr -d '\r' <"$PATTERNS_FILE" | grep -vE '^[[:space:]]*(#|$)') || true
+if [ -z "$CLEAN_PATTERNS" ]; then
+  echo "  $PATTERNS_FILE has no usable patterns - refusing to pass." >&2
+  exit 1
+fi
+
 HIT=0
 while IFS= read -r pattern || [ -n "$pattern" ]; do
-  # Skip blank lines and comments.
-  case "$pattern" in '' | \#*) continue ;; esac
-
-  if printf '%s\n' "$ADDED" | grep -q -i -E -- "$pattern"; then
-    # Print a prefix only. Echoing the whole pattern would put the value into terminal
-    # scrollback and CI logs.
-    echo "  matched forbidden pattern starting: $(printf '%s' "$pattern" | cut -c1-4)..." >&2
-    HIT=1
-  fi
-done <"$PATTERNS_FILE"
+  # grep exits 0=match, 1=no match, >=2=error. `if grep ...` would read an invalid regex
+  # as "no match" and silently disable that pattern for every future commit, so the status
+  # is captured and an error is treated as a failure.
+  rc=0
+  printf '%s\n' "$ADDED" | grep -q -i -E -- "$pattern" || rc=$?
+  # Print a prefix only. Echoing the whole pattern would put the value into terminal
+  # scrollback and CI logs.
+  prefix=$(printf '%s' "$pattern" | cut -c1-4)
+  case "$rc" in
+    0) echo "  matched forbidden pattern starting: $prefix..." >&2; HIT=1 ;;
+    1) ;;
+    *) echo "  pattern starting '$prefix...' is not a valid regex - refusing to pass." >&2; HIT=1 ;;
+  esac
+done <<EOF
+$CLEAN_PATTERNS
+EOF
 
 if [ "$HIT" -ne 0 ]; then
   cat >&2 <<'MSG'
