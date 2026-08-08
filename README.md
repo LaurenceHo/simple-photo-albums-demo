@@ -41,13 +41,14 @@ This is a fullstack photo album web app using Vue3, PrimeVue, Tailwind CSS, Tans
 
 You will need the follows:
 
-1. Google Place API key (For admin manage albums and travel records)
-2. Google OAuth 2.0 Client ID (For admin access)
-3. Cloudflare account (For Workers, D1 database and R2 storage)
-4. Cloudflare R2 bucket (For storing photos. **You need to create this manually.** )
-5. ImageKit account (It's optional)
-6. Mapbox API key (For displaying map)
-7. RapidAPI key with AeroDataBox subscription (For flight data lookup in travel records, optional)
+1. Google OAuth 2.0 Client ID (For admin access)
+2. Cloudflare account (For Workers, D1 database and R2 storage)
+3. Cloudflare R2 bucket (For storing photos. **You need to create this manually.** )
+4. ImageKit account (It's optional)
+5. **Two** Mapbox API keys — one public token for displaying maps in the browser, and a
+   second, separate one for place search on the server. See
+   [Mapbox API key](#mapbox-api-key) for why they cannot be the same token.
+6. RapidAPI key with AeroDataBox subscription (For flight data lookup in travel records, optional)
 
 ‼️ **️Important** ‼️
 
@@ -75,6 +76,59 @@ This project uses Mapbox to display the [map](https://simple-photo-albums.pages.
 Use a **public** token (`pk.*`) and add a URL restriction for your own domain in the Mapbox
 dashboard — see the note below on why. A secret token (`sk.*`) must never be used here.
 
+#### Two Mapbox tokens are required
+
+| Variable | Used by | Restriction |
+| --- | --- | --- |
+| `VITE_MAPBOX_API_KEY` | The browser, for map tiles | Public `pk.*`, **URL-restricted** to your own domain |
+| `MAPBOXAPI_KEY` | The Worker, for place search | Public `pk.*`, **no URL restriction** |
+
+They must be **separate tokens**. A URL restriction is enforced against the `Referer`
+header, and a `fetch` from a Cloudflare Worker sends none — so the URL-restricted token
+is rejected server-side. Keeping them separate also means a leak of the public one does
+not force rotation of the server one.
+
+`MAPBOXAPI_KEY` has no `VITE_` prefix on purpose: it is a Worker secret and must never
+reach the client bundle.
+
+#### `SEARCH_PROXIMITY` (optional)
+
+Place search sends partial queries as you type, and Mapbox ranks those by the caller's IP
+when given no hint. A deployed Worker calls out from whichever Cloudflare datacentre
+serves the request, so ranking varies by datacentre and will not match what you see
+locally — typing `Auckl` returned a New Zealand result, a Singaporean road or a British
+garage depending on origin.
+
+Set `SEARCH_PROXIMITY` to `"<longitude>,<latitude>"` to make ranking deterministic:
+
+```properties
+SEARCH_PROXIMITY=174.7633,-36.8485
+```
+
+The literal value `ip` is also accepted, and is equivalent to leaving it unset — verified:
+`proximity=ip` returns byte-identical results to omitting the parameter entirely (design
+spec §5.6).
+
+Leave it unset to keep the IP-biased default. It only breaks ties on partial queries —
+fully-typed searches are unaffected, so this does not bias searches for other countries.
+An invalid value is logged and ignored rather than sent.
+
+In production, `SEARCH_PROXIMITY` is read from `vars.SEARCH_PROXIMITY` in the deploy
+workflow — a GitHub Actions **variable**, not a secret. GitHub resolves `vars.*` against
+environment-level variables first, then falls back to repository-level ones, so either
+works; an **environment** variable on the `prod` environment (Settings → Environments →
+`prod` → Variables) is the better home. The job already declares `environment: prod` and
+scopes everything else it reads — `ALBUM_URL`, `R2_BUCKET_NAME`, and the rest (see
+`.github/workflows/api-build-deploy.yaml`) — to that same environment, just as **secrets**
+rather than variables; keeping `SEARCH_PROXIMITY` there too, as a variable, matches that
+existing convention instead of introducing a repository-wide value alongside otherwise
+environment-scoped configuration. The deploy workflow only uploads `SEARCH_PROXIMITY` to
+the Worker when it is non-empty — an unset value is skipped rather than uploaded as an
+empty secret. This means the relationship is one-way: setting or changing the variable
+takes effect on the next deploy, but **clearing** it does not remove an already-uploaded
+value from the Worker. To actually unset it, run
+`wrangler secret delete SEARCH_PROXIMITY` against the Worker directly.
+
 ### `VITE_*` variables are public
 
 Vite inlines every `VITE_`-prefixed variable into the client bundle at build time, so all of them
@@ -89,7 +143,7 @@ This is fine for the ones that are public by design, but it means:
   identifiers, no action needed.
 
 Anything that must stay confidential belongs in the Worker as a `wrangler secret` and must **not**
-carry a `VITE_` prefix: `JWT_SECRET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `GOOGLE_PLACES_API_KEY`,
+carry a `VITE_` prefix: `JWT_SECRET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `MAPBOXAPI_KEY`,
 `RAPIDAPI_KEY`. (`VITE_GOOGLE_CLIENT_ID` is also uploaded as a Worker secret because the Worker
 needs it as the token `audience` — the name is misleading, but the value is not confidential.)
 

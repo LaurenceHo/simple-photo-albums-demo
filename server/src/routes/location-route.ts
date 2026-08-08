@@ -8,7 +8,7 @@ import { verifyJwtClaim, verifyUserPermission } from './auth-middleware';
 const controller = new LocationController();
 const app = new Hono<HonoEnv>();
 
-// Admin-only: this proxies Google Places using the server's own API key, and every
+// Admin-only: this proxies Mapbox Search using the server's own API key, and every
 // call is billed. Location search is only reachable from admin authoring dialogs in the
 // UI, so leaving it open was an unauthenticated, unmetered spend vector.
 app.get(
