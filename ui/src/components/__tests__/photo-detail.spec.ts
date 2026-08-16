@@ -1,10 +1,13 @@
+import { EditPhotoButton } from '@/components/button';
 import PanoramaViewer from '@/components/PanoramaViewer.vue';
 import PhotoDetail from '@/components/PhotoDetail.vue';
+import PhotoInfoPanel from '@/components/PhotoInfoPanel.vue';
 import router from '@/router';
 import { PHOTO_INFO_PANEL_OPEN } from '@/utils/local-storage-key';
 import { createTestingPinia } from '@pinia/testing';
 import { QueryClient, VueQueryPlugin, type VueQueryPluginOptions } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
+import ExifReader from 'exifreader';
 import PrimeVue from 'primevue/config';
 import ToastService from 'primevue/toastservice';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -190,16 +193,13 @@ describe('PhotoDetail.vue', () => {
   const getTabbableButtons = (target: ReturnType<typeof mount>) =>
     target.findAll('button').filter((button) => (button.element as HTMLButtonElement).tabIndex >= 0);
 
-  /**
-   * `useDevice()` reads `window.innerWidth` once, synchronously, when
-   * `PhotoDetail` is set up - so this must run *before* mounting, not after.
-   * jsdom's `innerWidth` is a plain own property (default 1024, exactly the
-   * `lg` breakpoint), so a plain assignment is enough; no `Object.defineProperty`
-   * needed.
-   */
-  const setViewportWidth = (width: number) => {
-    window.innerWidth = width;
-  };
+  // There is deliberately no viewport-width helper here any more. `PhotoDetail`
+  // no longer reads `window.innerWidth` - the drawer/sheet split is pure CSS
+  // (`lg:` variants) - and jsdom applies no CSS and evaluates no media queries,
+  // so setting a width could not change a single rendered byte. Breakpoint
+  // behaviour is covered by asserting the layout classes and was verified in a
+  // real browser; anything that sets `innerWidth` here would only look like
+  // coverage.
 
   beforeEach(() => {
     // jsdom does not implement scrollIntoView at all - PhotoFilmstrip now calls
@@ -214,6 +214,14 @@ describe('PhotoDetail.vue', () => {
     mockRouterPush.mockClear();
     mockPhotoStore.photosInAlbum.value = DEFAULT_PHOTOS;
     mockUserConfigStore.isAdmin.value = false;
+    // Several tests below swap in their own `load` behaviour (equirectangular
+    // tags, or a never-settling promise for the staleness guards) and none of
+    // them put it back. Reset here so a test's result cannot depend on which
+    // ones happened to run before it.
+    vi.mocked(ExifReader.load).mockReset();
+    vi.mocked(ExifReader.load).mockResolvedValue(
+      {} as unknown as Awaited<ReturnType<typeof ExifReader.load>>,
+    );
     wrapper = mountPhotoDetail();
   });
 
@@ -221,10 +229,6 @@ describe('PhotoDetail.vue', () => {
     wrapper.unmount();
     mockPhotoStore.photosInAlbum.value = DEFAULT_PHOTOS;
     mockUserConfigStore.isAdmin.value = false;
-    // jsdom's default; a couple of tests below override it to simulate a small
-    // or large viewport for the drawer/filmstrip collision, and must not leak
-    // into whichever test runs next.
-    setViewportWidth(1024);
   });
 
   it('renders correctly', () => {
@@ -315,8 +319,11 @@ describe('PhotoDetail.vue', () => {
     };
     expect(vm.isPanoramaPhoto).toBe(true);
 
-    // Test filename with '360'
-    vm.exifTags = {};
+    // Test filename with '360'. Dimensions are required now: the filename alone
+    // no longer promotes a photo to the sphere viewer unless the image is
+    // actually shaped like one.
+    const sphere = { 'Image Width': { value: 6000 }, 'Image Height': { value: 3000 } };
+    vm.exifTags = { ...sphere };
     vm.photoFileName = 'photo360.jpg';
     expect(vm.isPanoramaPhoto).toBe(true);
 
@@ -335,9 +342,14 @@ describe('PhotoDetail.vue', () => {
 
   describe('isPanoramaPhoto filename fallback', () => {
     /**
-     * Sets `photoFileName` with `exifTags` cleared, so only the filename fallback
-     * (never the EXIF checks that run ahead of it) can influence the result -
-     * exactly what each case below is targeting.
+     * Sets `photoFileName` with no EXIF beyond a 2:1 dimension pair, so the
+     * filename is the only thing that can decide the result - none of the EXIF
+     * checks that run ahead of it, and none of the aspect-ratio gate that runs
+     * after it.
+     *
+     * The dimensions are not incidental: since the gate landed, a name-only
+     * match is denied unless the image is shaped like a full sphere, so omitting
+     * them would make every case here fail for the wrong reason.
      */
     const setFileNameOnly = (fileName: string) => {
       const vm = wrapper.vm as unknown as {
@@ -345,7 +357,7 @@ describe('PhotoDetail.vue', () => {
         photoFileName: string;
         isPanoramaPhoto: boolean;
       };
-      vm.exifTags = {};
+      vm.exifTags = { 'Image Width': { value: 6000 }, 'Image Height': { value: 3000 } };
       vm.photoFileName = fileName;
       return vm;
     };
@@ -371,6 +383,84 @@ describe('PhotoDetail.vue', () => {
       'IMG_pano.jpg',
     ])('detects "%s" as a panorama', (fileName) => {
       expect(setFileNameOnly(fileName).isPanoramaPhoto).toBe(true);
+    });
+
+    describe('full-sphere aspect ratio gate on the filename path', () => {
+      const setNameAndSize = (fileName: string, width: number, height: number) => {
+        const vm = wrapper.vm as unknown as {
+          exifTags: Record<string, unknown>;
+          photoFileName: string;
+          isPanoramaPhoto: boolean;
+        };
+        vm.exifTags = { 'Image Width': { value: width }, 'Image Height': { value: height } };
+        vm.photoFileName = fileName;
+        return vm;
+      };
+
+      it('rejects a panorama-named photo that is not shaped like a full sphere', () => {
+        // The real case: an 8192x3105 (2.638:1) aerial panorama. Genuinely 360
+        // around - its left and right edges join, measured against a
+        // quarter-turn control - but cropped top and bottom to roughly 136
+        // degrees of vertical coverage. Pannellum assumes a full 180 and
+        // stretches it, so it rendered as a broken 360 rather than the wide flat
+        // photo it is better shown as.
+        expect(setNameAndSize('test-panorama-photo-1.jpg', 8192, 3105).isPanoramaPhoto).toBe(false);
+      });
+
+      it.each([
+        ['12000x6000', 12000, 6000],
+        ['6000x3000', 6000, 3000],
+        ['8192x4096', 8192, 4096],
+      ])('accepts a panorama-named photo at %s, an exact 2:1 sphere', (_label, width, height) => {
+        expect(setNameAndSize('test-panorama-photo-2.jpg', width, height).isPanoramaPhoto).toBe(
+          true,
+        );
+      });
+
+      it('tolerates an off-by-a-pixel export but not a real crop', () => {
+        expect(setNameAndSize('pano.jpg', 6001, 3000).isPanoramaPhoto).toBe(true);
+        expect(setNameAndSize('pano.jpg', 6000, 2800).isPanoramaPhoto).toBe(false);
+      });
+
+      it('gates only the filename path, never EXIF or a known 360 camera', () => {
+        // `ProjectionType` and camera make/model describe how the photo was
+        // made, and pannellum reads GPano's crop tags itself - so a partial
+        // sphere that still carries its metadata is projected correctly and must
+        // not be rejected for its shape.
+        const vm = setNameAndSize('anything.jpg', 8192, 3105);
+        vm.exifTags = {
+          'Image Width': { value: 8192 },
+          'Image Height': { value: 3105 },
+          ProjectionType: { description: 'equirectangular' },
+        };
+        expect(vm.isPanoramaPhoto).toBe(true);
+
+        vm.exifTags = {
+          'Image Width': { value: 8192 },
+          'Image Height': { value: 3105 },
+          Make: { description: 'RICOH' },
+          Model: { description: 'RICOH THETA Z1' },
+        };
+        expect(vm.isPanoramaPhoto).toBe(true);
+      });
+
+      it('denies the filename signal when dimensions cannot be read at all', () => {
+        // The two failure modes are not symmetric. A real sphere shown flat is
+        // still perfectly viewable, just not pannable; a non-sphere handed to
+        // pannellum is visibly wrong. Uncertainty lands on the cheaper mistake.
+        //
+        // In practice this means the EXIF fetch failed outright - ExifReader
+        // takes these from the JPEG header, so they survive EXIF being stripped,
+        // which is exactly the case for the photos that prompted the gate.
+        const vm = wrapper.vm as unknown as {
+          exifTags: Record<string, unknown>;
+          photoFileName: string;
+          isPanoramaPhoto: boolean;
+        };
+        vm.exifTags = {};
+        vm.photoFileName = 'panorama.jpg';
+        expect(vm.isPanoramaPhoto).toBe(false);
+      });
     });
 
     it('still detects a panorama via EXIF ProjectionType even when the filename looks like an ordinary photo', async () => {
@@ -422,8 +512,38 @@ describe('PhotoDetail.vue', () => {
     // backdrop again, while `primevue-config.spec.ts`'s ordering test stays green
     // (it only checks that `overlay`/`menu` > `modal`, not that `modal` still matches
     // this dialog).
+    // `z-1100`, not `z-[1100]` - Tailwind v4 takes a bare number for z-index, so
+    // the arbitrary-value form is redundant and the linter canonicalises it. The
+    // rendered z-index is identical; only the class name changed.
     const dialog = wrapper.find('[role="dialog"]');
-    expect(dialog.classes()).toContain('z-[1100]');
+    expect(dialog.classes()).toContain('z-1100');
+  });
+
+  it('keeps the 360 badge clear of pannellum, which owns the top-left corner', async () => {
+    // Pannellum stacks its zoom controls and fullscreen toggle down the top-left
+    // of its own container, so a badge at `left-2` sat directly on the zoom `+`
+    // and both were unusable. Measured in Edge at 390x844: zoom occupies
+    // (4,60)-(32,114) and fullscreen (4,118)-(32,146); the badge now sits at
+    // (354,64), clear of those and of the next-photo chevron at (338,372).
+    const vm = wrapper.vm as unknown as { exifTags: Record<string, unknown> };
+    vm.exifTags = { ProjectionType: { description: 'equirectangular' } };
+    await wrapper.vm.$nextTick();
+
+    const badge = wrapper.find('[data-test-id="panorama-badge"]');
+    expect(badge.exists()).toBe(true);
+    expect(badge.classes()).toContain('right-2');
+    expect(badge.classes()).not.toContain('left-2');
+  });
+
+  it('paints the backdrop fully opaque, so the page behind does not read through it', () => {
+    // Was `bg-black/95`. Five percent sounds like nothing, but the album page
+    // behind is high-contrast (white background, dark text, bright thumbnails)
+    // and its title, breadcrumbs and photo grid stayed plainly legible through
+    // the backdrop - verified in Edge at both 390x844 and 1440x900. This is a
+    // modal lightbox; nothing behind it should be readable.
+    const dialog = wrapper.find('[role="dialog"]');
+    expect(dialog.classes()).toContain('bg-black');
+    expect(dialog.classes()).not.toContain('bg-black/95');
   });
 
   it('loads the lightbox image via ?tr=md-true, at full resolution with metadata preserved', () => {
@@ -469,11 +589,20 @@ describe('PhotoDetail.vue', () => {
     // this fix, `PanoramaViewer` received the plain `selectedImage.url` while the
     // EXIF watcher read `sharedPhotoUrl(...)` - two different query strings, so a
     // panorama photo downloaded twice for the same reason the `<img>` case did.
-    const vm = wrapper.vm as unknown as { exifTags: Record<string, unknown> };
-    vm.exifTags = { ProjectionType: { description: 'equirectangular' } };
-    await wrapper.vm.$nextTick();
-
+    // Drives the panorama branch through `ExifReader` rather than by assigning
+    // `exifTags` directly. What renders now comes from the committed frame, whose
+    // `isPanorama` is decided from the tags the watcher actually resolved - so
+    // poking the ref afterwards changes the badge but not the frame already on
+    // screen, which is precisely the mid-transition mismatch the frame prevents.
     const ExifReader = (await import('exifreader')).default;
+    vi.mocked(ExifReader.load).mockResolvedValue({
+      ProjectionType: { description: 'equirectangular' },
+    } as unknown as Awaited<ReturnType<typeof ExifReader.load>>);
+
+    wrapper.unmount();
+    wrapper = mountPhotoDetail();
+    await flushPromises();
+
     const exifCalls = vi.mocked(ExifReader.load).mock.calls;
     const lastExifCall = exifCalls[exifCalls.length - 1]?.[0];
     expect(lastExifCall).toBeTruthy();
@@ -482,6 +611,290 @@ describe('PhotoDetail.vue', () => {
     expect(panoramaViewer.exists()).toBe(true);
     expect(panoramaViewer.props('imageUrl')).toBe(lastExifCall);
   });
+
+  describe('slide transition', () => {
+    type SlideVm = {
+      slideDirection: 'next' | 'prev' | 'none';
+      slideClasses: { enterFrom: string; leaveTo: string; enterActive: string };
+      displayedFrame: {
+        key: string;
+        url: string;
+        isPanorama: boolean;
+        alt: string;
+        photo?: { key: string };
+      } | null;
+      selectedImageIndex: number;
+    };
+    const slideVm = () => wrapper.vm as unknown as SlideVm;
+
+    it('starts with no direction, so a deep link cross-fades instead of sliding in from nowhere', async () => {
+      await flushPromises();
+
+      expect(slideVm().slideDirection).toBe('none');
+      expect(slideVm().slideClasses.enterFrom).toBe('opacity-0');
+    });
+
+    it('sends the next photo in from the right and the old one out to the left', async () => {
+      await flushPromises();
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      // lightGallery's convention: content travels leftwards to advance.
+      expect(slideVm().slideDirection).toBe('next');
+      expect(slideVm().slideClasses.enterFrom).toBe('translate-x-full opacity-0');
+      expect(slideVm().slideClasses.leaveTo).toBe('-translate-x-full opacity-0');
+    });
+
+    it('mirrors the travel for the previous photo', async () => {
+      await flushPromises();
+      await wrapper.find('[data-test-id="previous-photo-button"]').trigger('click');
+      await flushPromises();
+
+      expect(slideVm().slideDirection).toBe('prev');
+      expect(slideVm().slideClasses.enterFrom).toBe('-translate-x-full opacity-0');
+      expect(slideVm().slideClasses.leaveTo).toBe('translate-x-full opacity-0');
+    });
+
+    // The `?photo=`-driven direction reset in the `photoId` watcher has no test
+    // here on purpose. `useRoute` is mocked as a static object, so `photoId`
+    // never changes and that watcher only ever runs its `immediate` pass - any
+    // test claiming to exercise an edited URL or history navigation would be
+    // asserting against a path that cannot fire, which is worse than no test.
+    // Covering it properly means a reactive route mock, and that is a change to
+    // this file's whole mocking strategy rather than one spec.
+
+    it('keeps travelling forwards when "next" wraps from the last photo to the first', async () => {
+      // The regression this guards: wrapping moves the index from 1 to 0, which
+      // reads as backwards. Direction has to come from the user's intent, not the
+      // index delta, or the last->first step slides the wrong way.
+      await flushPromises();
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+      expect(slideVm().selectedImageIndex).toBe(1);
+
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      expect(slideVm().selectedImageIndex).toBe(0);
+      expect(slideVm().slideDirection).toBe('next');
+    });
+
+    it('infers direction from the jump when the filmstrip picks an arbitrary photo', async () => {
+      await flushPromises();
+
+      // Re-queried after each click: the filmstrip re-renders on navigation
+      // (roving tabindex moves), so handles captured beforehand go stale.
+      const thumbnailAt = (index: number) =>
+        wrapper.findAll('[data-test-id="filmstrip-thumbnail"]')[index];
+
+      await thumbnailAt(1)?.trigger('click');
+      await flushPromises();
+      expect(slideVm().selectedImageIndex).toBe(1);
+      expect(slideVm().slideDirection).toBe('next');
+
+      await thumbnailAt(0)?.trigger('click');
+      await flushPromises();
+      expect(slideVm().selectedImageIndex).toBe(0);
+      expect(slideVm().slideDirection).toBe('prev');
+    });
+
+    it('commits the frame only once, keyed on the photo the transition swaps', async () => {
+      await flushPromises();
+      expect(slideVm().displayedFrame?.key).toBe('album/photo1.jpg');
+
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      expect(slideVm().displayedFrame?.key).toBe('album/photo2.jpg');
+      // Same builder as the EXIF read, so the preload shares their cache entry
+      // rather than adding a third download of the same photo.
+      expect(slideVm().displayedFrame?.url).toContain('tr=md-true');
+    });
+
+    it('holds the previous photo on screen until the next one is committed', async () => {
+      // The reason the frame exists: navigation used to blank the stage to a
+      // spinner the moment `?photo=` changed, which would cut any slide short.
+      const ExifReader = (await import('exifreader')).default;
+      let release: ((tags: Record<string, unknown>) => void) | undefined;
+      vi.mocked(ExifReader.load).mockImplementation(
+        (() => new Promise((resolve) => (release = resolve))) as never,
+      );
+
+      await flushPromises();
+      const before = slideVm().displayedFrame?.key;
+
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      // EXIF still in flight: the old frame is untouched, not cleared.
+      expect(slideVm().displayedFrame?.key).toBe(before);
+      expect(wrapper.find('[data-test-id="photo-frame"]').exists()).toBe(true);
+
+      release?.({});
+      await flushPromises();
+      expect(slideVm().displayedFrame?.key).not.toBe(before);
+    });
+
+    it('honours prefers-reduced-motion by dropping the animation, not the swap', async () => {
+      await flushPromises();
+      expect(slideVm().slideClasses.enterActive).toContain('motion-reduce:transition-none');
+    });
+
+    it('keeps every info-panel input on the committed photo, never mixing two', async () => {
+      // The panel used to take `:photo` live off `selectedImage` while its EXIF
+      // came from the commit, so for the whole fetch-and-decode window it showed
+      // the *next* photo's file name and size above the *current* photo's date,
+      // camera and GPS pin. Incomplete metadata is fine; metadata that
+      // confidently attributes one photo's location to another is not.
+      // Admin, so `EditPhotoButton` is mounted and its binding can be asserted
+      // too. Remounted before the hanging mock is installed, so the first frame
+      // still commits normally.
+      mockUserConfigStore.isAdmin.value = true;
+      wrapper.unmount();
+      wrapper = mountPhotoDetail();
+      await flushPromises();
+
+      const ExifReader = (await import('exifreader')).default;
+      let release: ((tags: Record<string, unknown>) => void) | undefined;
+      vi.mocked(ExifReader.load).mockImplementation(
+        (() => new Promise((resolve) => (release = resolve))) as never,
+      );
+
+      await wrapper.find('[data-test-id="photo-info-button"]').trigger('click');
+      await flushPromises();
+
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      // Asserted on what the panel is actually handed, not on the frame's own
+      // fields - binding the template back to `selectedImage` has to fail here,
+      // and a frame-level assertion would sail straight past that.
+      const panel = wrapper.findComponent(PhotoInfoPanel);
+      expect(panel.exists()).toBe(true);
+
+      // `selectedImageIndex` has already advanced - intended, the counter and
+      // filmstrip lead the photo - but everything describing the photo must
+      // still agree on the one that is actually on screen.
+      expect(slideVm().selectedImageIndex).toBe(1);
+      expect(slideVm().displayedFrame?.key).toBe('album/photo1.jpg');
+      expect((panel.props('photo') as { key: string } | undefined)?.key).toBe('album/photo1.jpg');
+
+      // The admin actions carry the more damaging version of the same bug -
+      // Delete/Move/Rename acting on a photo other than the one on screen - so
+      // assert the binding, not just that the button exists.
+      const editButton = wrapper.findComponent(EditPhotoButton);
+      expect(editButton.exists()).toBe(true);
+      expect(editButton.props('photoKey')).toBe('album/photo1.jpg');
+
+      release?.({});
+      await flushPromises();
+
+      const settled = wrapper.findComponent(PhotoInfoPanel);
+      expect((settled.props('photo') as { key: string } | undefined)?.key).toBe('album/photo2.jpg');
+    });
+
+    it('lets only the newest load control the spinner', async () => {
+      // A superseded run reaching its end used to clear `loadImage`
+      // unconditionally, switching the spinner off while the run that replaced
+      // it was still fetching - a black stage with no feedback for as long as
+      // that took. `stale` cannot express this; it says "I am obsolete", not
+      // "am I still the newest?".
+      const ExifReader = (await import('exifreader')).default;
+      const pending: ((tags: Record<string, unknown>) => void)[] = [];
+      vi.mocked(ExifReader.load).mockImplementation(
+        (() => new Promise((resolve) => pending.push(resolve))) as never,
+      );
+
+      wrapper.unmount();
+      wrapper = mountPhotoDetail();
+      await flushPromises();
+
+      const vm = wrapper.vm as unknown as { loadImage: boolean };
+      // First photo, nothing on screen yet, so the spinner is immediate.
+      expect(vm.loadImage).toBe(true);
+
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      // Settle the first, now-superseded run. It must not clear the spinner.
+      pending[0]?.({});
+      await flushPromises();
+      expect(vm.loadImage).toBe(true);
+
+      pending[1]?.({});
+      await flushPromises();
+      expect(vm.loadImage).toBe(false);
+    });
+
+    it('measures the decoded image when the header carries no dimensions', async () => {
+      // The gate would otherwise be format-dependent in a way dev never shows.
+      // ExifReader only emits `Image Width`/`Image Height` for JPEG, PNG, GIF and
+      // JXL - `image-header-webp.js` returns no `fileDataOffset`, so a WebP
+      // yields nothing on every successful read. WebP is an accepted upload
+      // type, and production serves through ImageKit, which negotiates format:
+      // the same URL that returns JPEG from raw R2 locally can return WebP in
+      // production. Header-only, every filename-detected 360 would have gone
+      // flat in production while every local check passed.
+      const ExifReader = (await import('exifreader')).default;
+      vi.mocked(ExifReader.load).mockResolvedValue(
+        {} as unknown as Awaited<ReturnType<typeof ExifReader.load>>,
+      );
+
+      // jsdom never loads images, so stand in for the decode with a 2:1 result.
+      const decode = vi.fn().mockResolvedValue(undefined);
+      const ImageStub = function (this: Record<string, unknown>) {
+        this.decode = decode;
+        this.naturalWidth = 6000;
+        this.naturalHeight = 3000;
+         
+      } as unknown as new () => HTMLImageElement;
+      vi.stubGlobal('Image', ImageStub);
+
+      mockPhotoStore.photosInAlbum.value = [
+        { key: 'album/photo1.jpg', url: 'https://example.com/photo1.jpg' },
+        { key: 'album/garden-pano.webp', url: 'https://example.com/garden-pano.webp' },
+      ];
+      wrapper.unmount();
+      wrapper = mountPhotoDetail();
+      await flushPromises();
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      expect(decode).toHaveBeenCalled();
+      expect(slideVm().displayedFrame?.key).toBe('album/garden-pano.webp');
+      expect(slideVm().displayedFrame?.isPanorama).toBe(true);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('renders a non-spherical panorama-named photo as a flat image, not in pannellum', async () => {
+      // Asserted at the frame, not at `isPanoramaPhoto`. That computed only
+      // drives the badge; what actually reaches pannellum is
+      // `displayedFrame.isPanorama`, so wiring the gate into the frame wrongly
+      // would leave the badge-level tests green.
+      const ExifReader = (await import('exifreader')).default;
+      vi.mocked(ExifReader.load).mockResolvedValue({
+        'Image Width': { value: 8192 },
+        'Image Height': { value: 3105 },
+      } as unknown as Awaited<ReturnType<typeof ExifReader.load>>);
+
+      mockPhotoStore.photosInAlbum.value = [
+        { key: 'album/photo1.jpg', url: 'https://example.com/photo1.jpg' },
+        { key: 'album/test-panorama-photo-1.jpg', url: 'https://example.com/pano.jpg' },
+      ];
+      wrapper.unmount();
+      wrapper = mountPhotoDetail();
+      await flushPromises();
+      await wrapper.find('[data-test-id="next-photo-button"]').trigger('click');
+      await flushPromises();
+
+      expect(slideVm().displayedFrame?.key).toBe('album/test-panorama-photo-1.jpg');
+      expect(slideVm().displayedFrame?.isPanorama).toBe(false);
+      expect(wrapper.findComponent(PanoramaViewer).exists()).toBe(false);
+      expect(wrapper.find('[data-test-id="photo-frame"] img').exists()).toBe(true);
+    });
+  });
+
 
   it('locks body scroll while open and releases it on close', () => {
     expect(document.body.classList.contains('overflow-hidden')).toBe(true);
@@ -1053,7 +1466,10 @@ describe('PhotoDetail.vue', () => {
   });
 
   it('renders the caption below the image rather than inside the top bar', async () => {
-    await wrapper.vm.$nextTick();
+    // `flushPromises`, not `$nextTick`: the caption is committed alongside the
+    // photo frame at the end of the EXIF+decode chain, so that it changes at the
+    // same moment the photo does rather than ahead of it.
+    await flushPromises();
 
     const caption = wrapper.find('[data-test-id="photo-file-name"]');
     expect(caption.exists()).toBe(true);
@@ -1072,7 +1488,7 @@ describe('PhotoDetail.vue', () => {
     expect(counter.text()).toBe('(1/2)');
   });
 
-  it('labels the admin photo-actions button so it does not announce as just "button"', () => {
+  it('labels the admin photo-actions button so it does not announce as just "button"', async () => {
     // `EditPhotoButton` (the icon-only dots menu trigger) only renders for admins, so
     // the default `isAdmin: false` fixture never mounts it - flip the mocked user-config
     // store here rather than adding a whole separate test harness for `EditPhoto.vue` in
@@ -1081,6 +1497,9 @@ describe('PhotoDetail.vue', () => {
     mockUserConfigStore.isAdmin.value = true;
     wrapper.unmount();
     wrapper = mountPhotoDetail();
+    // The button is keyed off the committed frame now, so it only exists once
+    // the first photo has been committed.
+    await flushPromises();
 
     const editButton = wrapper.find('[data-test-id="edit-photo-button"]');
     expect(editButton.exists()).toBe(true);
@@ -1115,35 +1534,109 @@ describe('PhotoDetail.vue', () => {
     expect(vm.selectedImageIndex).toBe(1);
   });
 
-  it('hides the caption and filmstrip below lg while the info panel is open, since the sheet fully covers them', async () => {
-    // Below `lg` the info panel is a bottom sheet over the lower half of the
-    // screen, landing exactly on the caption and filmstrip - leaving them
-    // mounted underneath would waste layout and put unreachable controls in
-    // the accessibility tree.
-    setViewportWidth(500);
-    wrapper.unmount();
-    wrapper = mountPhotoDetail();
-    await wrapper.vm.$nextTick();
-
+  it('keeps the filmstrip mounted while the info panel is open', async () => {
+    // Regression: the sheet used to be `absolute`, so it covered the lower half
+    // of the stage instead of shrinking it - which hid the bottom of the photo
+    // and forced the caption and filmstrip to be unmounted to avoid rendering
+    // them underneath. The sheet is now an in-flow flex sibling below `lg`
+    // (`lg:absolute` keeps the side-drawer behaviour above it), so nothing is
+    // occluded and the filmstrip stays reachable.
+    //
+    // Not parameterised over viewport width: the component no longer reads
+    // `window.innerWidth` at all, and jsdom applies no CSS and evaluates no
+    // media queries, so mounting at 500 vs 1280 renders byte-identical output.
+    // A width loop here would look like breakpoint coverage while proving
+    // nothing. The layout classes are asserted directly below instead, and the
+    // real breakpoint behaviour was verified in Edge at 390x844 and 1440x900.
     await wrapper.find('[data-test-id="photo-info-button"]').trigger('click');
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-test-id="photo-info-panel"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test-id="photo-file-name"]').exists()).toBe(false);
-    expect(wrapper.find('[data-test-id="photo-filmstrip"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test-id="photo-filmstrip"]').exists()).toBe(true);
   });
 
-  it('keeps the caption and filmstrip visible at lg+ with the info panel open, since the drawer is a side panel there', async () => {
-    setViewportWidth(1280);
-    wrapper.unmount();
-    wrapper = mountPhotoDetail();
+  it('stacks the stage and info sheet below lg, and goes back to a row at lg+', async () => {
+    // `flex-col` is the single class the whole fix rests on. Drop it and the
+    // container reverts to a row, the in-flow sheet becomes a side-by-side
+    // sibling, the stage stops shrinking vertically, and the original bug is
+    // back - with every other test in this file still green.
+    const row = wrapper.find('[data-test-id="photo-stage-row"]');
+    expect(row.classes()).toContain('flex-col');
+    expect(row.classes()).toContain('lg:flex-row');
+    // Without this the stage cannot give up height for the sheet at all.
+    expect(row.classes()).toContain('min-h-0');
+  });
+
+  it('puts the sheet beside the photo in landscape below lg, not underneath it', async () => {
+    // A phone on its side is 844x390 - still below `lg`, so it took the stacked
+    // layout and splitting the height left the photo ~87px tall once the
+    // filmstrip had its 80. Wide-and-short needs the other axis.
+    //
+    // Every landscape rule is scoped `max-lg:` on purpose: a desktop monitor is
+    // landscape too, and an unscoped `landscape:w-2/5` would fight `lg:w-90`
+    // on the sheet with the winner decided by Tailwind's variant sort order.
+    await wrapper.find('[data-test-id="photo-info-button"]').trigger('click');
     await wrapper.vm.$nextTick();
+
+    const row = wrapper.find('[data-test-id="photo-stage-row"]');
+    expect(row.classes()).toContain('max-lg:landscape:flex-row');
+
+    const sheet = wrapper.find('[data-test-id="photo-info-panel"]');
+    expect(sheet.classes()).toContain('max-lg:landscape:h-full');
+    expect(sheet.classes()).toContain('max-lg:landscape:w-2/5');
+
+    for (const className of [...row.classes(), ...sheet.classes()]) {
+      if (className.startsWith('landscape:')) {
+        throw new Error(`Unscoped landscape variant "${className}" would also apply at lg+`);
+      }
+    }
+  });
+
+  it('stacks the info sheet below lg but keeps it an absolute side drawer at lg+', async () => {
+    // The whole fix in one assertion: the sheet must be in flow (no `absolute`)
+    // so the stage column shrinks to the remaining half and `max-h-full` fits
+    // the *whole* photo, while `lg:absolute` preserves the desktop drawer.
+    await wrapper.find('[data-test-id="photo-info-button"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const sheet = wrapper.find('[data-test-id="photo-info-panel"]');
+    expect(sheet.classes()).not.toContain('absolute');
+    expect(sheet.classes()).toContain('lg:absolute');
+    expect(sheet.classes()).toContain('h-1/2');
+    // `shrink-0` is as load-bearing as `h-1/2`: without it the sheet defaults to
+    // `flex-shrink: 1` and gives up height alongside the stage, so the split
+    // lands somewhere other than the intended half.
+    expect(sheet.classes()).toContain('shrink-0');
+  });
+
+  it('hides only the caption below lg while the info panel is open, to buy the photo back height', async () => {
+    // The file name is already in the sheet's own `photo-info-file` block, so
+    // hiding it here loses nothing. A CSS breakpoint, not a JS one - the element
+    // stays mounted, which is why this checks classes and not `exists()`.
+    await flushPromises();
+    const closed = wrapper.find('[data-test-id="photo-file-name"]');
+    expect(closed.classes()).not.toContain('hidden');
 
     await wrapper.find('[data-test-id="photo-info-button"]').trigger('click');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('[data-test-id="photo-info-panel"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test-id="photo-file-name"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test-id="photo-filmstrip"]').exists()).toBe(true);
+    const caption = wrapper.find('[data-test-id="photo-file-name"]');
+    expect(caption.classes()).toContain('hidden');
+    expect(caption.classes()).toContain('lg:block');
+  });
+
+  it('shows the info toggle as pressed with a filled icon and the primary colour', async () => {
+    // `aria-pressed` alone is invisible; the icon swap and the dropped
+    // `p-button-secondary` are what make the state readable on screen.
+    const button = wrapper.find('[data-test-id="photo-info-button"]');
+    expect(button.attributes('aria-pressed')).toBe('false');
+    expect(button.classes()).toContain('p-button-secondary');
+
+    await button.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const pressed = wrapper.find('[data-test-id="photo-info-button"]');
+    expect(pressed.attributes('aria-pressed')).toBe('true');
+    expect(pressed.classes()).not.toContain('p-button-secondary');
   });
 });

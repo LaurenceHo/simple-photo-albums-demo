@@ -31,11 +31,25 @@
       type="button"
       @click="onThumbnailClick(index)"
     >
+      <!--
+        `draggable="false"` is what makes the drag-to-scroll below work with a
+        mouse at all. An `<img>` is natively draggable, so pressing a thumbnail
+        and moving started an HTML5 drag-and-drop of the image file: the browser
+        fired `dragstart` then `pointercancel` and stopped sending
+        `pointermove`, one move into the gesture. Instrumenting Edge gave
+        `down on IMG -> move -> dragstart -> pointercancel`, and `scrollLeft`
+        never budged.
+
+        Touch never hit this - it does not start HTML5 drags, and native touch
+        scrolling moves the strip regardless - which is why dragging the strip
+        worked on a phone and only ever failed on the desktop.
+      -->
       <img
         :src="filmstripThumbnailUrl(photo.url)"
         alt=""
         class="h-full w-full object-cover"
         decoding="async"
+        draggable="false"
         loading="lazy"
       />
     </button>
@@ -213,9 +227,9 @@ const endDrag = () => {
   }
 };
 
-// The strip unmounts mid-drag whenever the info sheet opens below `lg`
-// (PhotoDetail hides it while occluded) - without this, a drag in progress at
-// that moment would leave the window-level listeners above dangling,
+// The strip can unmount mid-drag - the lightbox closes on Escape or the close
+// button regardless of what the pointer is doing - and without this, a drag in
+// progress at that moment would leave the window-level listeners above dangling,
 // referencing a torn-down component.
 onUnmounted(() => {
   endDrag();

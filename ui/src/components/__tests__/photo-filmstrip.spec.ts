@@ -254,6 +254,28 @@ describe('PhotoFilmstrip.vue', () => {
       element.dispatchEvent(new PointerEvent(type, { bubbles: true, ...init }));
     };
 
+    it('marks thumbnails non-draggable, without which mouse drag cannot work at all', () => {
+      // An `<img>` is natively draggable, so pressing a thumbnail and moving
+      // started an HTML5 drag-and-drop of the image file: the browser fired
+      // `dragstart`, then `pointercancel`, and stopped sending `pointermove` one
+      // move into the gesture. Instrumenting Edge gave exactly
+      // `down on IMG -> move -> dragstart -> pointercancel`, with `scrollLeft`
+      // pinned at 240 throughout.
+      //
+      // Touch never hit this - it does not start HTML5 drags, and native touch
+      // scrolling moves the strip anyway - which is why dragging the strip
+      // worked on a phone and failed only on the desktop. jsdom does not
+      // implement native dragging either, so this asserts the attribute rather
+      // than the behaviour it prevents.
+      const wrapper = mountFilmstrip();
+
+      const images = wrapper.findAll('[data-test-id="filmstrip-thumbnail"] img');
+      expect(images.length).toBeGreaterThan(0);
+      for (const image of images) {
+        expect(image.attributes('draggable')).toBe('false');
+      }
+    });
+
     it('scrolls via drag: scrollLeft changes by the negated pointer delta', async () => {
       const wrapper = mountFilmstrip();
       const stripElement = wrapper.find('[data-test-id="photo-filmstrip"]').element as HTMLDivElement;

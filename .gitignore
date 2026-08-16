@@ -30,3 +30,6 @@ settings.local.json
 
 # Private infrastructure identifiers used by .husky/pre-commit. Never commit.
 .private-strings
+
+# Local MCP server config: machine-specific paths, not shared
+.mcp.json
