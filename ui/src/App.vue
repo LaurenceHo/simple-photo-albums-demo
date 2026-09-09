@@ -142,7 +142,9 @@ const { filterState } = storeToRefs(albumStore);
 
 const { isMediumDevice } = useDevice();
 
-const appName = import.meta.env.VITE_ALBUM_APP_TITLE;
+// Falls back to the static title in index.html rather than rendering the string
+// "undefined" as the heading and document title when the build-time var is unset.
+const appName = import.meta.env.VITE_ALBUM_APP_TITLE ?? document.title;
 const title = document.getElementsByTagName('title')?.[0];
 if (title) {
   title.innerHTML = appName;

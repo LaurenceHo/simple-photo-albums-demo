@@ -23,6 +23,10 @@ jobs:
       VITE_WORKER_API_URL: ${{ secrets.VITE_WORKER_API_URL }}
       VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
       VITE_GTAG_ID: ${{ secrets.VITE_GTAG_ID }}
+      # Inlined into the bundle by Vite at build time. Missing here = PrimeVue paints
+      # an "invalid licence" banner in production. Held as a repository secret rather
+      # than an environment one, since the dev and prod builds share the same licence.
+      VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
 
     steps:
       - uses: actions/checkout@v5

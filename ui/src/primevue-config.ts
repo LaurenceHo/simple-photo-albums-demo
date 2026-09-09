@@ -1,6 +1,19 @@
-import { definePreset } from '@primevue/themes';
-import Aura from '@primevue/themes/aura';
+import { definePreset } from '@primeuix/themes';
+import Aura from '@primeuix/themes/aura';
 import type { PrimeVueConfiguration } from 'primevue/config';
+
+/**
+ * PrimeVue 5 reads a PrimeUI licence key from `options.license` at runtime
+ * (`@primevue/core/config` calls `registerLicense()` with it), but as of 5.0.1 the
+ * shipped `PrimeVueConfiguration` type does not declare the property. Widening it
+ * here keeps the options object fully typed instead of falling back to a cast.
+ *
+ * Drop this alias once upstream adds `license` to `PrimeVueConfiguration`.
+ */
+type PrimeVueConfigurationWithLicense = PrimeVueConfiguration & {
+  /** PrimeUI licence key. Verified offline in the browser, so it ships in the bundle. */
+  license?: string;
+};
 
 const myThemePreset = definePreset(Aura, {
   semantic: {
@@ -33,7 +46,11 @@ const myThemePreset = definePreset(Aura, {
  * above the modal band is the correct ordering anyway: a dropdown opened from within
  * a modal must stack above that modal.
  */
-export const primeVueOptions: PrimeVueConfiguration = {
+export const primeVueOptions: PrimeVueConfigurationWithLicense = {
+  // PrimeVue 5+ requires a PrimeUI licence (a free community tier exists). It is
+  // verified offline in the browser, so it is not a secret - but it must be present
+  // at BUILD time or PrimeVue logs a warning and paints an "invalid licence" banner.
+  license: import.meta.env.VITE_PRIMEUI_LICENSE,
   theme: {
     preset: myThemePreset,
     options: {
