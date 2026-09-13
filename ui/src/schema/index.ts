@@ -2,6 +2,7 @@ export type { AggregateType, AlbumsByYear, DataAggregateValueMap } from './data-
 export type { Album, AlbumTag } from './album';
 export type { ApiResponse, PhotoResponse, ResponseStatus } from './api-response';
 export type { ExifData } from './exif';
+export type { Position, TrackFeature, TrackManifest, TrackManifestEntry } from './gps-track';
 export type { Photo } from './photo';
 export type { Place } from './place';
 export type { TravelRecord } from './travel-record';

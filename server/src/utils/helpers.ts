@@ -160,3 +160,20 @@ export const isValidCoordination = (lat: number, lon: number): boolean => {
     typeof lat === 'number' && typeof lon === 'number' && !Number.isNaN(lat) && !Number.isNaN(lon)
   );
 };
+
+/**
+ * A caller-supplied value, made safe to put in a log line.
+ *
+ * Album and track ids reach the logs straight from request bodies and URL segments.
+ * `safeR2Segment` stops them escaping an R2 prefix, but it permits newlines and other
+ * control characters - so an id could otherwise inject a second, forged entry and make the
+ * log unreliable as a record of what happened. Truncated too, since these end up in a
+ * stream where one enormous line is its own problem.
+ */
+export const forLog = (value: unknown): string =>
+  String(value)
+    // A unicode property escape rather than an explicit codepoint range: the same
+    // characters, but it states the intent and does not trip `no-control-regex`, which
+    // exists to catch the *accidental* control character this deliberately is not.
+    .replace(/\p{Cc}/gu, ' ')
+    .slice(0, 200);

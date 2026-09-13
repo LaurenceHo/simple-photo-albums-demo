@@ -6,6 +6,12 @@ import {
 import { createAlbum, deleteAlbum, getAlbumsByYear, updateAlbum } from '@/mocks/album-handler';
 import { createAlbumTag, deleteAlbumTag, getAlbumTags } from '@/mocks/album-tag-handler';
 import { getUserPermission, userLogin, userLogout } from '@/mocks/auth-handler';
+import {
+  deleteGpsTrack,
+  getGpsTrack,
+  getGpsTracks,
+  uploadGpsTrack,
+} from '@/mocks/gps-track-handler';
 import { searchPlaces } from '@/mocks/location-handler';
 import {
   deletePhotos,
@@ -56,6 +62,11 @@ export const handlers = [
   deletePhotos,
   uploadPhotos,
   renamePhoto,
+  /** GPS Track **/
+  getGpsTrack,
+  getGpsTracks,
+  uploadGpsTrack,
+  deleteGpsTrack,
   /** Travel Record **/
   getTravelRecords,
   deleteTravelRecord,

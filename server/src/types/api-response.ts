@@ -19,7 +19,7 @@ export const PhotoResponseSchema = z.object({
  * purpose: existing photo filenames in R2 may legitimately contain spaces, brackets
  * or non-ASCII characters, and an allowlist would break moving or deleting them.
  */
-const safeR2Segment = (label: string) =>
+export const safeR2Segment = (label: string) =>
   z
     .string()
     .min(1)

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { safeR2Segment } from './api-response';
 import { AlbumSchema } from './album';
 import { TravelRecordSchema } from './travel-record';
 
@@ -15,8 +16,17 @@ export const UpdateAlbumSchema = AlbumSchema.omit({
   updatedBy: true,
 });
 
+/**
+ * Body for `DELETE /api/albums`.
+ *
+ * `id` is guarded rather than a bare string because the handler feeds it straight into an
+ * R2 prefix. A plain `z.string()` admitted `''`, which made the track cleanup empty the
+ * bare `gps-tracks/` prefix - every album's tracks, from a request that named none of
+ * them, answered with 200. Same class of bug as `MovePhotosRequestSchema` in
+ * `api-response.ts`.
+ */
 export const DeleteAlbumSchema = z.object({
-  id: z.string(),
+  id: safeR2Segment('id'),
   year: z.string(),
 });
 

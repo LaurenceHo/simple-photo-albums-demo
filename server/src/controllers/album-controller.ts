@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { HonoEnv, ValidatedJsonContext } from '../env';
 import AlbumService from '../services/album-service';
+import { albumTrackPrefix } from '../services/gps-track-service';
 import { Album } from '../types/album';
 import {
   CreateAlbumRequest,
@@ -8,7 +9,13 @@ import {
   UpdateAlbumRequest,
 } from '../types/request-schemas';
 import { UserPermission } from '../types/user-permission';
-import { buildR2Config, emptyR2Folder, uploadObject, verifyIfIsAdmin } from '../utils/helpers';
+import {
+  buildR2Config,
+  emptyR2Folder,
+  forLog,
+  uploadObject,
+  verifyIfIsAdmin,
+} from '../utils/helpers';
 import { BaseController } from './base-controller';
 
 export default class AlbumController extends BaseController {
@@ -93,20 +100,43 @@ export default class AlbumController extends BaseController {
   delete = async (c: ValidatedJsonContext<DeleteAlbumRequest>) => {
     try {
       const requestBody = c.req.valid('json');
-      console.log('##### Delete album: %s', requestBody.id);
+      console.log('##### Delete album: %s', forLog(requestBody.id));
       const albumService = new AlbumService(c.env.DB);
 
       // Empty R2 folder
       const r2Config = buildR2Config(c.env);
       const result = await emptyR2Folder(r2Config, c.env.R2_BUCKET_NAME, requestBody.id);
 
-      if (result) {
-        // Delete album from database
-        await albumService.delete(requestBody.id);
-        return this.ok(c, 'Album deleted');
-      } else {
+      if (!result) {
         return this.fail(c, 'Failed to delete photo album');
       }
+
+      // Delete album from database
+      await albumService.delete(requestBody.id);
+
+      // GPS tracks live under a sibling `gps-tracks/<albumId>/` prefix, not inside the
+      // album's photo folder, so emptying the photo folder above does not reach them. See
+      // `GpsTrackService` for why they are stored apart from the photos.
+      //
+      // Runs last, and only once the album is actually gone: emptying tracks before the
+      // photo folder was known to be empty meant a *failed* delete still destroyed them,
+      // leaving the album in place with its photos and no tracks.
+      //
+      // The prefix is built by `albumTrackPrefix` rather than concatenated, so an id that
+      // could escape the album's own prefix throws instead of matching every album.
+      //
+      // Logged but not fatal: an orphaned track object costs a little storage, whereas
+      // failing here would report a delete that already happened as a failure.
+      const tracksEmptied = await emptyR2Folder(
+        r2Config,
+        c.env.R2_BUCKET_NAME,
+        albumTrackPrefix(requestBody.id),
+      );
+      if (!tracksEmptied) {
+        console.error('Failed to empty GPS track folder for album: %s', forLog(requestBody.id));
+      }
+
+      return this.ok(c, 'Album deleted');
     } catch (err: any) {
       console.error(`Failed to delete photo album: ${err}`);
       return this.fail(c, 'Failed to delete photo album');

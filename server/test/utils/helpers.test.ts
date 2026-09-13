@@ -4,6 +4,7 @@ import {
   buildR2Config,
   deleteObjects,
   emptyR2Folder,
+  forLog,
   haversineDistance,
   isValidCoordination,
   uploadObject,
@@ -416,5 +417,38 @@ describe('R2 Helpers', () => {
 
       expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ Prefix: 'my-folder/' }));
     });
+  });
+});
+
+/**
+ * Ids reach the logs straight from request bodies and URL segments. `safeR2Segment` keeps
+ * them from escaping an R2 prefix but permits control characters, so without this a track
+ * id could inject a whole second log entry and make the log unreliable as a record.
+ */
+describe('forLog', () => {
+  it('leaves an ordinary id untouched', () => {
+    expect(forLog('2026-04-12-day-1')).toBe('2026-04-12-day-1');
+  });
+
+  it.each([
+    ['a newline', 'day-1\n##### Deleted GPS track: other-album/day-9'],
+    ['a carriage return', 'day-1\r##### Deleted GPS track: other-album/day-9'],
+    ['a tab', 'day-1\tfake'],
+    ['a NUL', 'day-1\u0000fake'],
+  ])('strips %s so a forged entry cannot be injected', (_label, id) => {
+    const logged = forLog(id);
+
+    expect(logged).not.toMatch(/[\u0000-\u001F\u007F]/);
+    // The text survives - this sanitises the line breaks, it does not discard the value.
+    expect(logged).toContain('day-1');
+  });
+
+  it('truncates an enormous value', () => {
+    expect(forLog('x'.repeat(5000))).toHaveLength(200);
+  });
+
+  it('handles a non-string without throwing', () => {
+    expect(forLog(undefined)).toBe('undefined');
+    expect(forLog(42)).toBe('42');
   });
 });

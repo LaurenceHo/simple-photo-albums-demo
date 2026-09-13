@@ -61,12 +61,26 @@ vi.mock('../../src/routes/auth-middleware', async () => {
   };
 });
 
-vi.mock('../../src/utils/helpers', async () => ({
-  buildR2Config: () => ({}),
-  emptyR2Folder: () => Promise.resolve(true),
-  uploadObject: () => Promise.resolve(true),
-  verifyIfIsAdmin: () => true,
-}));
+/** Prefixes passed to `emptyR2Folder`, so the delete path can be asserted. */
+const emptiedPrefixes = vi.hoisted(() => [] as string[]);
+
+// Spreads the real module rather than replacing it: only the R2-touching helpers need
+// stubbing, and a bare object silently turns every other helper into `undefined`, which
+// surfaces as an unexplained 500 the first time the controller reaches for a new one.
+vi.mock('../../src/utils/helpers', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/utils/helpers')>();
+
+  return {
+    ...original,
+    buildR2Config: () => ({}),
+    emptyR2Folder: (_config: unknown, _bucket: string, prefix: string) => {
+      emptiedPrefixes.push(prefix);
+      return Promise.resolve(true);
+    },
+    uploadObject: () => Promise.resolve(true),
+    verifyIfIsAdmin: () => true,
+  };
+});
 
 // Mock env
 const env = {
@@ -167,8 +181,8 @@ describe('album route', () => {
   });
 
   describe('delete album', () => {
-    it('should return 200', async () => {
-      const response = await app.request(
+    const deleteAlbum = () =>
+      app.request(
         '/api/albums',
         {
           method: 'DELETE',
@@ -180,7 +194,58 @@ describe('album route', () => {
         },
         env,
       );
+
+    it('should return 200', async () => {
+      const response = await deleteAlbum();
       expect(response.status).toBe(200);
+    });
+
+    it('empties the photo prefix and the sibling GPS track prefix', async () => {
+      emptiedPrefixes.length = 0;
+
+      await deleteAlbum();
+
+      // Tracks live under `gps-tracks/<albumId>/`, outside the album's photo folder, so
+      // one call cannot reach both. Missing the second leaves orphaned track objects that
+      // nothing ever cleans up.
+      expect(emptiedPrefixes).toEqual(['test-album', 'gps-tracks/test-album/']);
+    });
+
+    /**
+     * Regression tests for a destructive bug.
+     *
+     * `DeleteAlbumSchema.id` was a bare `z.string()`, so `''` was a valid body. The photo
+     * prefix then became `'/'`, which matches nothing and so *reported success*, and the
+     * track prefix became the bare `'gps-tracks/'` - which `emptyR2Folder` treats as an
+     * already-terminated prefix, so it listed and deleted every album's tracks. The
+     * response was 200 "Album deleted", naming an album that was never touched.
+     */
+    describe('an id that is not a usable R2 segment', () => {
+      const deleteWithId = (id: string) =>
+        app.request(
+          '/api/albums',
+          {
+            method: 'DELETE',
+            body: JSON.stringify({ year: '2024', id }),
+            headers: { 'Content-Type': 'application/json' },
+          },
+          env,
+        );
+
+      it.each([
+        ['empty', ''],
+        ['a path separator', 'a/b'],
+        ['a parent directory', '..'],
+      ])('rejects %s before touching R2', async (_label, id) => {
+        emptiedPrefixes.length = 0;
+
+        const response = await deleteWithId(id);
+
+        expect(response.status).toBe(400);
+        // The assertion that matters: nothing was deleted. A 400 that still emptied a
+        // prefix would be the same bug wearing a different status code.
+        expect(emptiedPrefixes).toEqual([]);
+      });
     });
   });
 });

@@ -1,16 +1,12 @@
 import { Context } from 'hono';
-import { getCookie } from 'hono/cookie';
-import { get, isEmpty } from 'radash';
+import { isEmpty } from 'radash';
 import { HonoEnv, ValidatedJsonContext, ValidatedQueryContext } from '../env';
-import { cleanJwtCookie } from '../routes/auth-middleware';
 import AlbumService from '../services/album-service';
 import R2Service from '../services/r2-service';
 import { PhotoResponse, PhotosRequest, RenamePhotoRequest } from '../types';
 import { MovePhotosRequest, UploadPhotoQuery } from '../types/api-response';
 import { Album } from '../types/album';
-import { UserPermission } from '../types/user-permission';
 import { buildR2Config, deleteObjects } from '../utils/helpers';
-import { verifyJwt } from '../utils/jwt';
 import { BaseController } from './base-controller';
 
 export default class PhotoController extends BaseController {
@@ -61,34 +57,6 @@ export default class PhotoController extends BaseController {
       return this.fail(c, 'Failed to get photos');
     }
   };
-
-  /**
-   * Check if user has access to the album
-   * @param c Hono Context
-   * @param album Album object
-   * @returns Error Response if access is denied, otherwise void
-   */
-  private async checkAlbumAccess(c: Context<HonoEnv>, album: Album): Promise<Response | void> {
-    if (!album.isUnlisted) {
-      return;
-    }
-
-    const token = getCookie(c, 'jwt');
-    if (!token) {
-      return cleanJwtCookie(c, 'Authentication failed.');
-    }
-
-    try {
-      const decodedPayload = await verifyJwt<UserPermission>(token, c.env.JWT_SECRET);
-      const isAdmin = get(decodedPayload, 'role') === 'admin';
-      if (!isAdmin) {
-        return cleanJwtCookie(c, 'Unauthorized action.', 403);
-      }
-    } catch (error) {
-      console.error('JWT verification failed in PhotoController.checkAlbumAccess:', error);
-      return cleanJwtCookie(c, 'Authentication failed.');
-    }
-  }
 
   /**
    * Update album cover if needed

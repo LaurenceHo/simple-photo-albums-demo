@@ -167,6 +167,27 @@
         <div v-if="selectedPlace && locationLatitude !== 0 && locationLongitude !== 0" class="mt-4">
           <PhotoLocationMap :latitude="locationLatitude" :longitude="locationLongitude" />
         </div>
+
+        <!-- A summary row plus a button, following the Album Tag row above: the album
+             dialog is a staged form whose Reset discards changes, while track upload and
+             delete hit R2 immediately. Embedding the uploader here would leave Reset
+             unable to undo an upload and Cancel unable to undo a delete. -->
+        <div class="mt-4 mb-4 flex items-center gap-2">
+          <div class="grow">
+            <div class="text-surface-900 dark:text-surface-300">GPS tracks</div>
+            <small class="text-surface-400" data-test-id="gps-track-count">
+              {{ gpsTrackSummary }}
+            </small>
+          </div>
+          <Button
+            :disabled="!albumToBeUpdate?.id || isCreatingAlbum"
+            data-test-id="manage-gps-tracks-button"
+            label="Manage"
+            severity="secondary"
+            text
+            @click="dialogStore.setDialogState('manageGpsTracks', true)"
+          />
+        </div>
       </div>
 
       <div class="flex justify-end">
@@ -189,16 +210,19 @@
       </div>
     </form>
   </Dialog>
+
+  <ManageGpsTracks v-if="dialogStates.manageGpsTracks" />
 </template>
 
 <script lang="ts" setup>
 import PhotoLocationMap from '@/components/PhotoLocationMap.vue';
 import SelectTags from '@/components/select/SelectTags.vue';
 import type { Album, Place } from '@/schema';
+import ManageGpsTracks from '@/components/dialog/ManageGpsTracks.vue';
 import { AlbumService } from '@/services/album-service';
 import { AlbumTagService } from '@/services/album-tag-service';
 import { LocationService } from '@/services/location-service';
-import { useAlbumStore, useAlbumTagsStore, useDialogStore } from '@/stores';
+import { useAlbumStore, useAlbumTagsStore, useDialogStore, useGpsTrackStore } from '@/stores';
 import { initialAlbum } from '@/stores/album';
 import { getYearOptions } from '@/utils/helper';
 import { IconPlus } from '@tabler/icons-vue';
@@ -218,7 +242,7 @@ import {
 } from 'primevue';
 import { useToast } from 'primevue/usetoast';
 import { isEmpty } from 'radash';
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 const toast = useToast();
@@ -231,11 +255,50 @@ const albumStore = useAlbumStore();
 
 const { setAlbumToBeUpdated } = albumStore;
 const { dialogStates } = storeToRefs(dialogStore);
+
+const gpsTrackStore = useGpsTrackStore();
+const { tracks: gpsTracks } = storeToRefs(gpsTrackStore);
 const { albumToBeUpdate } = storeToRefs(albumStore);
 
 const visible = computed({
   get: () => !!dialogStates.value?.updateAlbum,
   set: (val) => dialogStore.setDialogState('updateAlbum', val),
+});
+
+/**
+ * Point the track store at the album being *edited*, which is not necessarily the one
+ * being *viewed* — opened from the album list they are different albums entirely, and
+ * without this the dialog would list and upload tracks against the wrong one. Cleared on
+ * close so the map view falls back to `currentAlbum`.
+ */
+watch(() => albumToBeUpdate.value?.id, (editedAlbumId) => gpsTrackStore.setAlbumId(editedAlbumId ?? ''), {
+  immediate: true,
+});
+
+/**
+ * Release the override when the dialog goes away.
+ *
+ * This has to be `onUnmounted`, not a watcher on `visible`. Both hosts render this dialog
+ * behind `v-if="dialogStates.updateAlbum"`, so closing it **destroys the component** - a
+ * watcher watching `visible` is torn down before it can observe the change to false and
+ * never clears anything.
+ *
+ * Getting this wrong pinned the store to the last-edited album for the rest of the
+ * session: opening Edit on one album and then viewing another showed, uploaded to, and
+ * deleted from the first one.
+ */
+onUnmounted(() => {
+  gpsTrackStore.setAlbumId('');
+  // The nested dialog's own flag lives in the shared store, so leaving it set would
+  // re-open the track manager unprompted the next time any album is edited.
+  dialogStore.setDialogState('manageGpsTracks', false);
+});
+
+const gpsTrackSummary = computed(() => {
+  if (!albumToBeUpdate.value?.id) return 'Save the album first';
+  const count = gpsTracks.value.length;
+  if (count === 0) return 'No tracks yet';
+  return count === 1 ? '1 track' : `${count} tracks`;
 });
 const { data: albumTags } = storeToRefs(albumTagsStore);
 

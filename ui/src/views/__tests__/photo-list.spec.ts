@@ -2,8 +2,9 @@ import type { Album, Photo } from '@/schema';
 import PhotoList from '@/views/PhotoList.vue';
 import { mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
+import ToastService from 'primevue/toastservice';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 import { type RouteLocationNormalizedLoadedGeneric, useRoute } from 'vue-router';
 
 /** Default route used by every test unless a test overrides it (see the grid/lightbox test below). */
@@ -51,6 +52,7 @@ const { mockUserConfigStore, mockAlbumStore, mockPhotoStore, mockDialogStore } =
         isUnlisted: false,
       }),
       refetchAlbums: vi.fn(),
+      setAlbumToBeUpdated: vi.fn(),
       isAlbumCover: vi.fn(() => false),
     };
 
@@ -92,11 +94,25 @@ const { mockUserConfigStore, mockAlbumStore, mockPhotoStore, mockDialogStore } =
   },
 );
 
+/**
+ * Track store: the view reads `hasTracks` to decide whether to offer the `map` view mode.
+ * These specs cover the photo grid, so an album with no tracks is the right fixture.
+ */
+const mockGpsTrackStore = {
+  hasTracks: ref(false),
+  legend: ref([]),
+  renderableTracks: ref([]),
+  isFetchingTracks: ref(false),
+  setAlbumId: vi.fn(),
+  toggleTrack: vi.fn(),
+};
+
 vi.mock('@/stores', () => ({
   useUserConfigStore: vi.fn(() => mockUserConfigStore),
   useAlbumStore: vi.fn(() => mockAlbumStore),
   usePhotoStore: vi.fn(() => mockPhotoStore),
   useDialogStore: vi.fn(() => mockDialogStore),
+  useGpsTrackStore: vi.fn(() => mockGpsTrackStore),
 }));
 
 /** 15 photos: enough to exceed EAGER_PHOTO_COUNT (12) and prove the cutoff lands there. */
@@ -240,5 +256,199 @@ describe('PhotoList.vue photo grid container', () => {
     expect(wrapper.find('[data-test-id="photo-index"]').text()).toBe('(0/15)');
 
     wrapper.unmount();
+  });
+});
+
+describe('PhotoList.vue view modes', () => {
+  const mountWithStubs = () =>
+    mount(PhotoList, {
+      global: {
+        // ToastService because several PrimeVue-using children pull `useToast` from the
+        // `primevue` barrel rather than `primevue/usetoast`, so this file's mock of that
+        // path does not reach them.
+        plugins: [PrimeVue, ToastService],
+        directives: { tooltip: {} },
+        stubs: {
+          Popover: true,
+          teleport: true,
+          // AlbumTrackMap instantiates mapbox-gl, which jsdom cannot give a WebGL canvas.
+          AlbumTrackMap: true,
+          // Both names: the file is EditPhoto.vue but it is imported as EditPhotoButton,
+          // and stubs match the resolved name. photo.spec.ts lists both for the same
+          // reason. Unstubbed it calls useMutation, which needs VueQueryPlugin wiring
+          // these container-focused tests have no use for.
+          EditPhoto: true,
+          EditPhotoButton: true,
+          // Only rendered when the dialog store says so, which is mocked here, but
+          // stubbing keeps its mapbox and vuelidate wiring out of these tests entirely.
+          CreateAlbum: true,
+        },
+      },
+    });
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.clearAllMocks();
+    mockPhotoStore.isFetchingPhotos.value = false;
+    mockPhotoStore.photosInAlbum.value = PHOTOS;
+    mockPhotoStore.selectedPhotos.value = [];
+    mockUserConfigStore.isAdmin.value = false;
+    mockGpsTrackStore.hasTracks.value = false;
+    vi.mocked(useRoute).mockReturnValue(
+      DEFAULT_ROUTE as unknown as RouteLocationNormalizedLoadedGeneric,
+    );
+  });
+
+  const styleOptions = (wrapper: ReturnType<typeof mountWithStubs>) =>
+    (wrapper.vm as unknown as { photoStyleOptions: string[] }).photoStyleOptions;
+
+  it('hides the map mode from a visitor when the album has no tracks', () => {
+    expect(styleOptions(mountWithStubs())).toEqual(['grid', 'detail']);
+  });
+
+  it('offers the map mode once the album has a track', () => {
+    mockGpsTrackStore.hasTracks.value = true;
+
+    expect(styleOptions(mountWithStubs())).toContain('map');
+  });
+
+  it('offers the map mode to an admin even with no tracks, so the first can be added', () => {
+    mockUserConfigStore.isAdmin.value = true;
+
+    expect(styleOptions(mountWithStubs())).toContain('map');
+  });
+
+  it.each([
+    ['an unknown style', 'xyz'],
+    ['an empty style', ''],
+  ])('falls back to grid for %s in the query', (_label, photoStyle) => {
+    // Before `map` existed an unrecognised value silently fell through to the detail
+    // layout; it would now land in the grid-vs-map branch instead.
+    vi.mocked(useRoute).mockReturnValue({
+      params: { albumId: 'album1', year: '2026' },
+      query: { photoStyle },
+    } as unknown as RouteLocationNormalizedLoadedGeneric);
+
+    const wrapper = mountWithStubs();
+
+    expect((wrapper.vm as unknown as { photoStyle: string }).photoStyle).toBe('grid');
+    expect(wrapper.find('.justified-grid').exists()).toBe(true);
+  });
+
+  it('honours a valid style from the query', () => {
+    mockGpsTrackStore.hasTracks.value = true;
+    vi.mocked(useRoute).mockReturnValue({
+      params: { albumId: 'album1', year: '2026' },
+      query: { photoStyle: 'map' },
+    } as unknown as RouteLocationNormalizedLoadedGeneric);
+
+    expect((mountWithStubs().vm as unknown as { photoStyle: string }).photoStyle).toBe('map');
+  });
+
+  it('replaces the photo grid entirely in map mode', async () => {
+    mockGpsTrackStore.hasTracks.value = true;
+    const wrapper = mountWithStubs();
+
+    (wrapper.vm as unknown as { photoStyle: string }).photoStyle = 'map';
+    await nextTick();
+
+    // The guard is `photoStyle !== 'map'`, not a grid-vs-detail check: without it, 'map'
+    // would reach Photo.vue, which renders its detail layout for anything but 'grid'.
+    expect(wrapper.findAll('[data-test-id="photo-item"]')).toHaveLength(0);
+    expect(wrapper.findAll('[data-test-id="detail-photo-item"]')).toHaveLength(0);
+    expect(wrapper.find('.justified-grid').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'AlbumTrackMap' }).exists()).toBe(true);
+  });
+
+  it('shows the edit album button to an admin, opening the album dialog', async () => {
+    mockUserConfigStore.isAdmin.value = true;
+    const wrapper = mountWithStubs();
+
+    await wrapper.find('[data-test-id="edit-album-button"]').trigger('click');
+
+    expect(mockAlbumStore.setAlbumToBeUpdated).toHaveBeenCalled();
+    expect(mockDialogStore.setDialogState).toHaveBeenCalledWith('updateAlbum', true);
+  });
+});
+
+describe('PhotoList.vue album place popover', () => {
+  const PLACE = {
+    displayName: 'Valencia',
+    formattedAddress: 'Valencia, Spain',
+    location: { latitude: 39.4699075, longitude: -0.3762881 },
+  };
+
+  const mountWithStubs = () =>
+    mount(PhotoList, {
+      global: {
+        plugins: [PrimeVue, ToastService],
+        directives: { tooltip: {} },
+        stubs: {
+          Popover: true,
+          teleport: true,
+          AlbumTrackMap: true,
+          EditPhoto: true,
+          EditPhotoButton: true,
+          CreateAlbum: true,
+          // Instantiates mapbox-gl, which jsdom cannot give a WebGL canvas.
+          PhotoLocationMap: true,
+        },
+      },
+    });
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.clearAllMocks();
+    mockPhotoStore.isFetchingPhotos.value = false;
+    mockPhotoStore.photosInAlbum.value = PHOTOS;
+    mockPhotoStore.selectedPhotos.value = [];
+    mockUserConfigStore.isAdmin.value = false;
+    mockGpsTrackStore.hasTracks.value = false;
+    mockAlbumStore.currentAlbum.value = { ...mockAlbumStore.currentAlbum.value, place: PLACE };
+    vi.mocked(useRoute).mockReturnValue(
+      DEFAULT_ROUTE as unknown as RouteLocationNormalizedLoadedGeneric,
+    );
+  });
+
+  it('offers the place popover when the album has a location and no track', () => {
+    const wrapper = mountWithStubs();
+
+    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(true);
+  });
+
+  it('hides the place popover once the album has a track', () => {
+    // The track map already drops a marker on `place`, so the popover would be showing a
+    // worse version of what the map view shows.
+    mockGpsTrackStore.hasTracks.value = true;
+
+    const wrapper = mountWithStubs();
+
+    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
+  });
+
+  it('hides it when the album has no location at all', () => {
+    mockAlbumStore.currentAlbum.value = {
+      ...mockAlbumStore.currentAlbum.value,
+      place: undefined,
+    };
+
+    const wrapper = mountWithStubs();
+
+    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
+  });
+
+  it('swaps the popover for the map option in one step as tracks load', async () => {
+    const wrapper = mountWithStubs();
+    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(true);
+
+    mockGpsTrackStore.hasTracks.value = true;
+    await nextTick();
+
+    // Both flip on the same `hasTracks`, so the toolbar settles once rather than the two
+    // controls changing independently.
+    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
+    expect((wrapper.vm as unknown as { photoStyleOptions: string[] }).photoStyleOptions).toContain(
+      'map',
+    );
   });
 });

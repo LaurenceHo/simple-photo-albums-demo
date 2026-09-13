@@ -1,9 +1,15 @@
 import { mockFeaturedAlbums } from '@/mocks/aggregate-handler';
 import { mockAlbums } from '@/mocks/album-handler';
+import { mockTrackFeature, mockTrackManifest } from '@/mocks/gps-track-handler';
 import { mockTravelRecords } from '@/mocks/travel-records-handler';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/vue-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/vue-query';
 import { vi } from 'vitest';
-import { ref } from 'vue';
+import { ref, unref } from 'vue';
 
 interface QueryOptions {
   queryKey: (string | string[] | undefined)[];
@@ -12,6 +18,30 @@ interface QueryOptions {
   refetchOnWindowFocus?: boolean;
   refetchOnReconnect?: boolean;
 }
+
+/**
+ * Fixture for a query key, or null when nothing matches.
+ *
+ * Shared by the `useQuery` and `useQueries` mocks so a key resolves to the same data
+ * whichever hook asked for it.
+ */
+const dataForKey = (queryKey: unknown): unknown => {
+  const key = Array.isArray(queryKey) ? queryKey[0] : queryKey;
+  switch (key) {
+    case 'fetchAlbumsByYears':
+      return mockAlbums;
+    case 'featured-albums':
+      return mockFeaturedAlbums;
+    case 'getTravelRecords':
+      return mockTravelRecords;
+    case 'gpsTracks':
+      return mockTrackManifest;
+    case 'gpsTrack':
+      return mockTrackFeature;
+    default:
+      return null;
+  }
+};
 
 interface MutationOptions {
   mutationFn?: (...args: unknown[]) => Promise<unknown>;
@@ -48,17 +78,13 @@ export const setupQueryMocks = (
   } = {},
 ) => {
   vi.mocked(useQuery).mockImplementation(((options: QueryOptions) => {
-    const queryKey = Array.isArray(options.queryKey) ? options.queryKey[0] : options.queryKey;
-    switch (queryKey) {
-      case 'fetchAlbumsByYears':
-        return createBaseMockQueryReturn(mockAlbums, overrides.useQuery);
-      case 'featured-albums':
-        return createBaseMockQueryReturn(mockFeaturedAlbums, overrides.useQuery);
-      case 'getTravelRecords':
-        return createBaseMockQueryReturn(mockTravelRecords, overrides.useQuery);
-      default:
-        return createBaseMockQueryReturn(null);
-    }
+    const data = dataForKey(unref(options.queryKey));
+    // An unrecognised key resolves to null rather than failing, so a new query added
+    // without a case here yields `data: null` and its tests pass while testing nothing.
+    // Adding the case is not optional - see CLAUDE.md.
+    return data === null
+      ? createBaseMockQueryReturn(null)
+      : createBaseMockQueryReturn(data, overrides.useQuery);
   }) as unknown as typeof useQuery);
 
   vi.mocked(useMutation).mockImplementation(((options: MutationOptions) => {
@@ -108,3 +134,4 @@ export const setupQueryMocks = (
     }) as QueryClient,
   );
 };
+
