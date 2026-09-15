@@ -14,6 +14,13 @@
           Upload finished!
         </Message>
 
+        <!-- The album cap, refused here rather than by the server: the upload endpoint
+             mints one presigned URL per file and they go out in parallel, so a server-side
+             refusal arrives too late to stop the batch. -->
+        <Message v-if="exceedsAlbumCap" class="mb-4" data-test-id="album-cap-message" severity="warn">
+          {{ capMessage }}
+        </Message>
+
         <div
           v-if="!isCompleteUploading && !isUploading"
           :class="{ 'flex flex-1 items-center justify-center': !files.length }"
@@ -70,7 +77,7 @@
       />
       <Button
         v-if="!isCompleteUploading"
-        :disabled="isUploading || validFiles.length === 0"
+        :disabled="isUploading || validFiles.length === 0 || exceedsAlbumCap"
         data-test-id="upload-file-button"
         label="Upload"
         @click="uploadFiles(albumId)"
@@ -92,7 +99,7 @@ import { useUploadStore } from '@/stores/upload';
 import { IconX } from '@tabler/icons-vue';
 import { storeToRefs } from 'pinia';
 import { Button, Message } from 'primevue';
-import { computed, ref, toRefs, watch } from 'vue';
+import { ref, toRefs, watch } from 'vue';
 
 const emits = defineEmits(['refreshPhotoList', 'closePhotoUploader']);
 
@@ -105,12 +112,11 @@ const props = defineProps({
 
 const { albumId } = toRefs(props);
 const uploadStore = useUploadStore();
-const { files, isUploading, isCompleteUploading } = storeToRefs(uploadStore);
+const { files, isUploading, isCompleteUploading, validFiles, exceedsAlbumCap, capMessage } =
+  storeToRefs(uploadStore);
 const { addFiles, removeFile, uploadFiles, clearFiles } = uploadStore;
 
 const isValidDrag = ref(true);
-
-const validFiles = computed(() => files.value.filter((file) => file.fileValidation === 'valid'));
 
 const isValidDragFn = (isValid: boolean) => {
   isValidDrag.value = isValid;

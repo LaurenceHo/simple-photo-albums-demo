@@ -1,4 +1,4 @@
-import type { ApiResponse, PhotoResponse, ResponseStatus } from '@/schema';
+import type { ApiResponse, PhotoMetadataResult, PhotoResponse, ResponseStatus } from '@/schema';
 import { ApiBaseUrl } from '@/services/api-base-url';
 import { BaseApiRequestService } from '@/services/base-api-request-service';
 
@@ -92,6 +92,37 @@ export const PhotoService = {
       albumId,
       photoKeys,
     });
+
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Ask the server to read EXIF GPS from photos already in R2 and store it.
+   *
+   * The browser parses no EXIF and downloads no photos for this: the Worker reads the
+   * leading bytes of each object itself, which is why no R2 bucket CORS is needed and why
+   * a backfill does not pull gigabytes through the client.
+   *
+   * The batch is capped at 50 server-side, so callers must chunk. Two of them exist: the
+   * uploader, straight after an upload, and the admin backfill scan.
+   *
+   * @param albumId Album the photos belong to.
+   * @param photoKeys Filenames within the album, without the album prefix.
+   * @returns One result per key, in the order they were sent.
+   */
+  extractPhotoMetadata: async (
+    albumId: string,
+    photoKeys: string[],
+  ): Promise<ApiResponse<{ results: PhotoMetadataResult[] }>> => {
+    const response = await BaseApiRequestService.perform(
+      'POST',
+      `${ApiBaseUrl}/photos/metadata/${albumId}`,
+      { photoKeys },
+    );
 
     if (!response.ok) {
       throw new Error(response.statusText);

@@ -100,8 +100,13 @@
         data-test-id="photo-manage-panel"
       >
         <template #start>
+          <!-- Hidden rather than disabled at the cap: there is nothing the admin can do
+               to this button to make it work, and the album has to be pruned first. The
+               count is already in the store, so this costs no extra request. -->
           <Button
+            v-if="!isAlbumFull"
             v-tooltip="'Upload photos'"
+            aria-label="Upload photos"
             data-test-id="upload-photos-button"
             severity="secondary"
             text
@@ -111,6 +116,26 @@
               <IconPhotoUp :size="24" />
             </template>
           </Button>
+          <span
+            v-else
+            class="text-surface-500 dark:text-surface-400 px-2 text-sm"
+            data-test-id="album-full-notice"
+          >
+            Album full ({{ MAX_PHOTOS_PER_ALBUM }} photos)
+          </span>
+          <!-- Admin-only: writes to every unscanned object in the album. -->
+          <Button
+            v-tooltip="'Scan photo locations'"
+            aria-label="Scan photo locations"
+            data-test-id="scan-photo-locations-button"
+            severity="secondary"
+            text
+            @click="dialogStore.setDialogState('scanPhotoLocations', true)"
+          >
+            <template #icon>
+              <IconMapPin :size="24" />
+            </template>
+          </Button>
           <!-- Until now the album could only be edited from the list page's ⋮ menu, so
                changing a name, tag or location meant navigating back out. A plain button
                rather than that menu: it also carries "Delete Album", which from inside
@@ -118,6 +143,7 @@
                through this dialog, like every other piece of album metadata. -->
           <Button
             v-tooltip="'Edit album'"
+            aria-label="Edit album"
             data-test-id="edit-album-button"
             severity="secondary"
             text
@@ -228,6 +254,10 @@
   </template>
 
   <CreateAlbum v-if="dialogStates.updateAlbum" />
+  <ScanPhotoLocations
+    v-if="dialogStates.scanPhotoLocations"
+    @refresh-photo-list="refreshPhotoList"
+  />
   <MovePhotos
     v-if="dialogStates.movePhoto"
     :album-id="currentAlbum?.id"
@@ -249,7 +279,13 @@
 </template>
 
 <script lang="ts" setup>
-import { CreateAlbum, DeletePhotos, MovePhotos, RenamePhoto } from '@/components/dialog';
+import {
+  CreateAlbum,
+  DeletePhotos,
+  MovePhotos,
+  RenamePhoto,
+  ScanPhotoLocations,
+} from '@/components/dialog';
 import Photo from '@/components/Photo.vue';
 import AlbumTrackMap from '@/components/AlbumTrackMap.vue';
 import PhotoDetail from '@/components/PhotoDetail.vue';
@@ -273,6 +309,7 @@ import {
   IconList,
   IconEyeOff,
   IconMap2,
+  IconMapPin,
   IconEdit,
   IconPhotoUp,
   IconRoute,
@@ -280,6 +317,7 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-vue';
+import { MAX_PHOTOS_PER_ALBUM } from '@/utils/photo-limits';
 import { storeToRefs } from 'pinia';
 import { Button, Popover, ScrollTop, SelectButton, Tag, Toolbar } from 'primevue';
 import { computed, onUnmounted, ref, watch } from 'vue';
@@ -302,24 +340,41 @@ const photoStore = usePhotoStore();
 const { isFetchingPhotos, photosInAlbum, selectedPhotos } = storeToRefs(photoStore);
 const { setSelectedPhotos, fetchPhotos } = photoStore;
 const { refetchAlbums, setAlbumToBeUpdated } = useAlbumStore();
-const { hasTracks } = storeToRefs(useGpsTrackStore());
+const { hasTracks, isFetchingTracks } = storeToRefs(useGpsTrackStore());
 const { currentAlbum } = storeToRefs(useAlbumStore());
 
 const albumId = computed(() => route.params['albumId'] as string);
 const albumYear = computed(() => route.params['year'] as string);
 const photoKeysList = computed(() => photosInAlbum.value.map((photo) => photo.key).slice(0, 50)); // Max 50 photos
 const photoAmount = computed(() => photosInAlbum.value.length);
+
+/** At or over the cap, so no more photos can be added until some are removed. */
+const isAlbumFull = computed(() => photoAmount.value >= MAX_PHOTOS_PER_ALBUM);
 const photoId = computed(() => route.query['photo'] as string);
 
 const showPhotoUploader = ref(false);
 const showMap = ref();
 
+/** Whether any photo in the album has coordinates to pin on the map. */
+const hasPinnedPhotos = computed(() =>
+  photosInAlbum.value.some(
+    (photo) => typeof photo.latitude === 'number' && typeof photo.longitude === 'number',
+  ),
+);
+
 /**
- * `map` is offered when the album has a track to show, or to an admin who may be about to
- * add the first one. A visitor looking at an album with no tracks never sees the option.
+ * `map` is offered when the album has something to draw — a track *or* a geotagged photo —
+ * or to an admin who may be about to add the first of either. A visitor looking at an
+ * album with neither never sees the option.
+ *
+ * Photos count here as well as tracks: an album can be entirely geotagged photos with no
+ * GPX at all, and gating the option on tracks alone would leave a visitor no way to reach
+ * pins that are sitting there ready to draw.
  */
 const photoStyleOptions = computed(() =>
-  hasTracks.value || isAdmin.value ? ['grid', 'detail', 'map'] : ['grid', 'detail'],
+  hasTracks.value || hasPinnedPhotos.value || isAdmin.value
+    ? ['grid', 'detail', 'map']
+    : ['grid', 'detail'],
 );
 
 /**
@@ -354,10 +409,18 @@ const photoStyle = ref(
  * SelectButton bound to a value absent from its options - rendering with nothing
  * selected. `photoStyleOptions` is reactive, so this also covers the tracks arriving or
  * the last one being deleted while the page is open.
+ *
+ * **It must not run while the answer is still unknown.** Whether `map` is on offer
+ * depends on the tracks, the photos and the viewer's role, and all three arrive
+ * asynchronously. Running this on mount - when none of them have landed - reset every
+ * `?photoStyle=map` deep link to the grid before the map could ever have been offered,
+ * so a shared link to the map view never worked. Waiting until both fetches have settled
+ * is what makes the deep link survive.
  */
 watch(
-  photoStyleOptions,
-  (options) => {
+  [photoStyleOptions, isFetchingPhotos, isFetchingTracks],
+  ([options, fetchingPhotos, fetchingTracks]) => {
+    if (fetchingPhotos || fetchingTracks) return;
     if (!options.includes(photoStyle.value)) photoStyle.value = 'grid';
   },
   { immediate: true },

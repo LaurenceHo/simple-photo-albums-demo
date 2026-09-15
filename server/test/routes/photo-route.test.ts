@@ -12,6 +12,10 @@ vi.mock('../../src/services/r2-service', async () => {
       copy() {
         return Promise.resolve(true);
       }
+      /** Well under the album cap, so presigning is never refused here. */
+      countObjects() {
+        return Promise.resolve(3);
+      }
       getPresignedUploadUrl() {
         return Promise.resolve('https://upload-url');
       }

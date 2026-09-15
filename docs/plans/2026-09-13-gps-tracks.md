@@ -219,7 +219,7 @@ useQueries over the manifest's ids
 
 - [x] **One source and one `line` layer per track**, coloured from the manifest's `colour`.
 - [x] Per-track visibility via `setLayoutProperty(layerId, 'visibility', 'none' | 'visible')` — simpler than a data-driven filter, and no source rebuild. Toggling off and on must not refetch geometry.
-- [x] **Add every track layer with an explicit `beforeId`,** as `AlbumMap.vue` does with `addLayer(spec, 'clusters')`. The photo-locations plan's pin layer must sit above them; fixing the ordering contract now avoids wedging it later.
+- [x] ~~**Add every track layer with an explicit `beforeId`,** as `AlbumMap.vue` does with `addLayer(spec, 'clusters')`. The photo-locations plan's pin layer must sit above them; fixing the ordering contract now avoids wedging it later.~~ **Not implemented as written, and could not be.** `AlbumMap.vue` can anchor to `'clusters'` because that layer already exists there; this map had no equivalent, and Mapbox refuses an `addLayer` naming a `beforeId` that is not on the map. Tracks therefore shipped with no anchor. The photo-locations plan's Task 5 closes this properly: it adds the pin layer, then anchors the track lines beneath it and restacks the existing ones. See the note on `syncTrackLayers` in `AlbumTrackMap.vue`.
 - [x] Fit bounds **once**, after the initially-visible tracks have loaded, so the map never jumps.
 - [x] Reuse `AlbumMap.vue`'s patterns: `line-join`/`line-cap: round`, zoom-interpolated `line-width`, the same dark-mode popup handling.
 - [x] Show the album `place` as a marker when present; show an empty-state message rather than a blank map when there is nothing to draw.

@@ -69,6 +69,34 @@ export const UploadPhotoQuerySchema = z.object({
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif']),
 });
 
+/**
+ * Body for `POST /api/photos/metadata/:albumId`, the EXIF scan.
+ *
+ * The batch is capped because each key costs a ranged R2 read plus a server-side copy,
+ * and the Worker has a wall-clock budget. The UI splits a backfill into batches of this
+ * size; the cap is the contract that makes that split the caller's job rather than a
+ * timeout the server discovers halfway through.
+ */
+export const PhotoMetadataRequestSchema = z.object({
+  photoKeys: z.array(safeR2Segment('photoKey')).min(1).max(50),
+});
+
+/**
+ * What the scan did with one photo.
+ *
+ * `noGps` is a success, not a failure: the photo was read and genuinely carries no
+ * location. It is reported separately from `located` so the UI can say how many photos
+ * had nothing to find rather than implying an error.
+ */
+export interface PhotoMetadataResult {
+  photoKey: string;
+  status: 'located' | 'noGps' | 'notFound' | 'failed';
+  latitude?: number;
+  longitude?: number;
+  takenAt?: string;
+  message?: string;
+}
+
 const ResponseStatusSchema = z.object({
   code: z.number(),
   status: z.string(),
@@ -84,6 +112,7 @@ export type RenamePhotoRequest = z.infer<typeof RenamePhotoRequestSchema>;
 export type PhotosRequest = z.infer<typeof PhotosRequestSchema>;
 export type MovePhotosRequest = z.infer<typeof MovePhotosRequestSchema>;
 export type UploadPhotoQuery = z.infer<typeof UploadPhotoQuerySchema>;
+export type PhotoMetadataRequest = z.infer<typeof PhotoMetadataRequestSchema>;
 export type PhotoResponse = z.infer<typeof PhotoResponseSchema>;
 export type ResponseStatus = z.infer<typeof ResponseStatusSchema>;
 export type ApiResponse<T> = z.infer<typeof ApiResponseSchema> & { data?: T };

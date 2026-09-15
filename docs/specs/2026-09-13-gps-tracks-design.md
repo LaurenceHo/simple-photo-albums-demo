@@ -129,9 +129,14 @@ answers "where is this album?", not "where did we walk?".
 
 One source and one `line` layer **per track**, so per-track visibility is
 `setLayoutProperty(layerId, 'visibility', …)` rather than a data-driven filter, and no source is
-ever rebuilt. **Track layers are added with an explicit `beforeId`,** as `AlbumMap.vue` already
-does — the follow-on piece's photo-pin layer must sit above them, and fixing that contract now
-avoids wedging it later.
+ever rebuilt.
+
+**Ordering, corrected after implementation.** This section originally said track layers would be
+added with an explicit `beforeId`, as `AlbumMap.vue` does. That was not possible: `AlbumMap` can
+anchor to its own `'clusters'` layer, and this map had nothing equivalent to name — Mapbox refuses
+an `addLayer` whose `beforeId` is not already on the map. Tracks shipped with no anchor. The
+photo-locations piece supplies the anchor it was missing: it adds the pin layer on top, then
+anchors the lines beneath it and restacks any that were already drawn.
 
 ### 5.4 Where tracks are managed from
 

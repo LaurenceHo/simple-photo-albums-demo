@@ -11,7 +11,8 @@ type DialogKey =
   | 'showAlbumTags'
   | 'createTravelRecords'
   | 'showTravelRecords'
-  | 'manageGpsTracks';
+  | 'manageGpsTracks'
+  | 'scanPhotoLocations';
 
 // Define the shape of the dialog state explicitly
 interface DialogStates {
@@ -24,6 +25,7 @@ interface DialogStates {
   createTravelRecords: boolean;
   showTravelRecords: boolean;
   manageGpsTracks: boolean;
+  scanPhotoLocations: boolean;
 }
 
 export const useDialogStore = defineStore('dialog', () => {
@@ -38,6 +40,7 @@ export const useDialogStore = defineStore('dialog', () => {
     createTravelRecords: false,
     showTravelRecords: false,
     manageGpsTracks: false,
+    scanPhotoLocations: false,
   });
 
   // Single setter function for all dialog states

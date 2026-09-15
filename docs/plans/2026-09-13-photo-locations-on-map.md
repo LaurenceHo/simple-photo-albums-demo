@@ -27,16 +27,16 @@
 Cheap to check, expensive to discover late, and not provable by unit test. The only fallback is
 browser extraction, which reintroduces the CORS and bandwidth problems this design avoids.
 
-- [ ] **`exifreader` runs under `workerd`** — gates Task 3. Verify with one real geotagged JPEG before writing the rest of that task.
+- [x] **`exifreader` runs under `workerd`** — gates Task 3. Verify with one real geotagged JPEG before writing the rest of that task.
 
 ## Task Checklist
 
-- [ ] 1. Add the native `[[r2_buckets]]` binding — XS
-- [ ] 2. Read photos through the binding, with metadata and pagination — M
-- [ ] 3. Worker-side EXIF extraction endpoint — M
-- [ ] 4. UI: extract after upload, backfill existing photos — M
-- [ ] 5. Photo pins on the album map — M *(requires the GPS tracks plan's Task 6)*
-- [ ] 6. Cap an album at 1000 photos — M *(independent; can run any time)*
+- [x] 1. Add the native `[[r2_buckets]]` binding — XS
+- [x] 2. Read photos through the binding, with metadata and pagination — M
+- [x] 3. Worker-side EXIF extraction endpoint — M
+- [x] 4. UI: extract after upload, backfill existing photos — M
+- [x] 5. Photo pins on the album map — M *(requires the GPS tracks plan's Task 6)*
+- [x] 6. Cap an album at 1000 photos — M *(independent; can run any time)*
 - [ ] **Checkpoint** — complete
 
 ## File Structure
@@ -68,10 +68,10 @@ ui/src/
 
 There is currently **no `[[r2_buckets]]` binding** — the Worker reaches R2 only over the S3 API.
 
-- [ ] Add the binding to `wrangler.toml` (local dev) and to **both** the default and `[env.production]` blocks of `wrangler.ci.toml`.
-- [ ] Use the existing `${R2_BUCKET_NAME}` placeholder — `bucket_name` is substituted by `envsubst` exactly like the D1 names. **Never a literal.** No new GitHub secret is needed.
-- [ ] Add `BUCKET: R2Bucket` to `Env` and `Bindings` in `env.ts`.
-- [ ] Confirm `env.BUCKET.list({ limit: 1 })` returns under `bun run --cwd server start:wrangler`.
+- [x] Add the binding to `wrangler.toml` (local dev) and to **both** the default and `[env.production]` blocks of `wrangler.ci.toml`.
+- [x] Use the existing `${R2_BUCKET_NAME}` placeholder — `bucket_name` is substituted by `envsubst` exactly like the D1 names. **Never a literal.** No new GitHub secret is needed.
+- [x] Add `BUCKET: R2Bucket` to `Env` and `Bindings` in `env.ts`.
+- [x] Confirm `env.BUCKET.list({ limit: 1 })` returns under `bun run --cwd server start:wrangler`.
 
 Purely additive: nothing reads the binding yet and the S3 path is untouched. `wrangler.ci.toml`
 **is** in the deploy path filter, so this alone ships the binding — which is the point, since
@@ -91,13 +91,13 @@ Task 2 needs it present.
 **Interfaces:** `Photo` gains optional `latitude`, `longitude`, `takenAt`. Update `PhotoSchema` on
 **both** sides — separate copies.
 
-- [ ] Switch `findAll`'s listing from S3 `ListObjectsV2` to `env.BUCKET.list({ prefix, startAfter, include: ['customMetadata'] })`, mapping `R2Object` → `Photo` (`uploaded` → `lastModified`, CDN `url` as today).
-- [ ] **Loop on `truncated` / `cursor` until exhausted.** With `include` the docs state you *"may receive fewer than `limit` results to accommodate metadata"*, so page size is variable. `findAll` today passes `MaxKeys: 1000` with no pagination, so albums over 1000 photos are already silently truncated — this fixes it. **Test against a mocked truncated response carrying a cursor**; a single-page test passes while the bug is live.
-- [ ] Parse coordinates defensively: validate latitude to [-90, 90] and longitude to [-180, 180]. A malformed or absent value yields a photo with no coordinates, never a `NaN` that reaches the map.
-- [ ] **Wrap `syncAlbumCover` in its own try/catch.** It *writes* to D1 on an ordinary photo-list GET, inside the same `try` whose `catch` returns `this.fail`. Pre-existing sharp edge; this is the change that rewrites the code around it. A thrown error from it must still yield a 200 with the full list.
-- [ ] Confirm by test that a **moved photo keeps its coordinates** through `CopyObject`, and that move, rename and delete need no other changes.
-- [ ] A photo with no custom metadata is returned exactly as today, with the new fields absent.
-- [ ] Add a comment in `r2-service.ts` explaining why both R2 APIs exist (spec §5.4).
+- [x] Switch `findAll`'s listing from S3 `ListObjectsV2` to `env.BUCKET.list({ prefix, startAfter, include: ['customMetadata'] })`, mapping `R2Object` → `Photo` (`uploaded` → `lastModified`, CDN `url` as today).
+- [x] **Loop on `truncated` / `cursor` until exhausted.** With `include` the docs state you *"may receive fewer than `limit` results to accommodate metadata"*, so page size is variable. `findAll` today passes `MaxKeys: 1000` with no pagination, so albums over 1000 photos are already silently truncated — this fixes it. **Test against a mocked truncated response carrying a cursor**; a single-page test passes while the bug is live.
+- [x] Parse coordinates defensively: validate latitude to [-90, 90] and longitude to [-180, 180]. A malformed or absent value yields a photo with no coordinates, never a `NaN` that reaches the map.
+- [x] **Wrap `syncAlbumCover` in its own try/catch.** It *writes* to D1 on an ordinary photo-list GET, inside the same `try` whose `catch` returns `this.fail`. Pre-existing sharp edge; this is the change that rewrites the code around it. A thrown error from it must still yield a 200 with the full list.
+- [x] Confirm by test that a **moved photo keeps its coordinates** through `CopyObject`, and that move, rename and delete need no other changes.
+- [x] A photo with no custom metadata is returned exactly as today, with the new fields absent.
+- [x] Add a comment in `r2-service.ts` explaining why both R2 APIs exist (spec §5.4).
 
 **Verification:** `bun run --cwd server test:server` && `bun run --cwd ui test:unit`
 **Dependencies:** Task 1. **Scope:** M
@@ -113,15 +113,15 @@ Task 2 needs it present.
 **Interfaces:** `POST /api/albums/:albumId/photos/metadata`, admin-only, body
 `{ photoKeys: string[] }` capped at 50, returning a per-key result.
 
-- [ ] **Prove `exifreader` runs under `workerd` first** — one real geotagged JPEG through local Wrangler, before writing the rest of this task. This is this plan's version of the GPS tracks plan's xmldom risk, and the only fallback is browser extraction, which reintroduces the CORS and bandwidth problems.
-- [ ] `bun add exifreader` in `server/`.
-- [ ] Read each object's first 128 KB via `env.BUCKET.get(key, { range: { offset: 0, length: 131072 } })`. Verify 128 KB is enough against a real JPEG from the bucket, and document the fallback to a larger range if a camera writes EXIF late.
-- [ ] Extract the `GPSLatitudeRef === 'S'` / `GPSLongitudeRef === 'W'` sign handling into `server/src/utils/exif-gps.ts`. The logic mirrors `PhotoInfoPanel.vue`'s; this copy is the server's — leave the UI one alone.
-- [ ] Write `latitude` / `longitude` / `takenAt` back with `CopyObject` in place, `MetadataDirective: 'REPLACE'`.
-- [ ] **Preserve `ContentType` on the copy** — a photo must not come back as `application/octet-stream`.
-- [ ] A photo with no GPS gets an explicit `hasGps=false` marker, so a re-scan skips it rather than re-reading it forever.
-- [ ] Validate `photoKeys` entries with `safeR2Segment`; non-admin returns 403.
-- [ ] One photo failing to parse is reported in its result entry and does not abort the batch.
+- [x] **Prove `exifreader` runs under `workerd` first** — one real geotagged JPEG through local Wrangler, before writing the rest of this task. This is this plan's version of the GPS tracks plan's xmldom risk, and the only fallback is browser extraction, which reintroduces the CORS and bandwidth problems.
+- [x] `bun add exifreader` in `server/`.
+- [x] Read each object's first 128 KB via `env.BUCKET.get(key, { range: { offset: 0, length: 131072 } })`. Verify 128 KB is enough against a real JPEG from the bucket, and document the fallback to a larger range if a camera writes EXIF late.
+- [x] Extract the `GPSLatitudeRef === 'S'` / `GPSLongitudeRef === 'W'` sign handling into `server/src/utils/exif-gps.ts`. The logic mirrors `PhotoInfoPanel.vue`'s; this copy is the server's — leave the UI one alone.
+- [x] Write `latitude` / `longitude` / `takenAt` back with `CopyObject` in place, `MetadataDirective: 'REPLACE'`.
+- [x] **Preserve `ContentType` on the copy** — a photo must not come back as `application/octet-stream`.
+- [x] A photo with no GPS gets an explicit `hasGps=false` marker, so a re-scan skips it rather than re-reading it forever.
+- [x] Validate `photoKeys` entries with `safeR2Segment`; non-admin returns 403.
+- [x] One photo failing to parse is reported in its result entry and does not abort the batch.
 
 **Verification:** `bun run --cwd server test:server`; manual against local Wrangler.
 **Dependencies:** Task 2. **Scope:** M
@@ -138,12 +138,12 @@ Task 2 needs it present.
 Two callers, one endpoint. **The UI parses no EXIF and downloads no photos** for either path — so
 no R2 bucket CORS is needed.
 
-- [ ] `stores/upload.ts` calls the endpoint once with every successfully uploaded key after `uploadFiles` finishes.
-- [ ] A failed metadata call **must not** mark the photo upload as failed — the photo is in R2 and the scan can fix it later.
-- [ ] Admin "Scan photo locations" action batching 50 at a time over photos with neither coordinates nor the `hasGps=false` marker.
-- [ ] Visible progress and a cancel button that stops mid-batch.
-- [ ] Re-running the scan on an already-scanned album is close to a no-op — it must not re-process photos already marked as having no GPS.
-- [ ] After uploading geotagged photos, their pins appear on the map view without a page reload.
+- [x] `stores/upload.ts` calls the endpoint once with every successfully uploaded key after `uploadFiles` finishes.
+- [x] A failed metadata call **must not** mark the photo upload as failed — the photo is in R2 and the scan can fix it later.
+- [x] Admin "Scan photo locations" action batching 50 at a time over photos with neither coordinates nor the `hasGps=false` marker.
+- [x] Visible progress and a cancel button that stops mid-batch.
+- [x] Re-running the scan on an already-scanned album is close to a no-op — it must not re-process photos already marked as having no GPS.
+- [x] After uploading geotagged photos, their pins appear on the map view without a page reload.
 
 **Verification:** `bun run --cwd ui test:unit`; manual against a real album with mixed geotagged
 and non-geotagged photos.
@@ -157,13 +157,13 @@ and non-geotagged photos.
 
 **Interfaces:** none new — reads `photosInAlbum` from the photo store.
 
-- [ ] Build a GeoJSON `FeatureCollection` from `photosInAlbum` entries that have coordinates.
-- [ ] Add a clustered `symbol` layer reusing `AlbumMap.vue`'s cluster / cluster-count / unclustered-point setup.
-- [ ] **Add the pin layer last**, above every track layer, which the GPS tracks plan's Task 6 adds with an explicit `beforeId`. Pins must always render above the lines.
-- [ ] Clicking a pin opens that photo in the lightbox via the existing `?photo=` query param.
-- [ ] Hover popup shows a thumbnail, as `AlbumMap`'s popup already does.
-- [ ] An album with coordinates but no tracks still shows pins, and bounds fit the pins instead.
-- [ ] Legend gains a pins on/off toggle alongside the per-track toggles.
+- [x] Build a GeoJSON `FeatureCollection` from `photosInAlbum` entries that have coordinates.
+- [x] Add a clustered `symbol` layer reusing `AlbumMap.vue`'s cluster / cluster-count / unclustered-point setup.
+- [x] ~~**Add the pin layer last**, above every track layer, which the GPS tracks plan's Task 6 adds with an explicit `beforeId`.~~ **The premise was wrong, and adding last is not sufficient.** The GPS tracks work shipped its lines with *no* `beforeId` — it had no anchor layer to name, and Mapbox refuses a `beforeId` that is not already on the map. Adding pins last also only holds at init: `syncTrackLayers` removes and re-adds a track toggled off and back on, and that re-add would land on top of the pins. Implemented instead as: add the pin layer on top, anchor every subsequent track `addLayer` to it, and `moveLayer` the existing lines beneath it when the pins first appear. Both paths have a regression test.
+- [x] Clicking a pin opens that photo in the lightbox via the existing `?photo=` query param.
+- [x] Hover popup shows a thumbnail, as `AlbumMap`'s popup already does.
+- [x] An album with coordinates but no tracks still shows pins, and bounds fit the pins instead.
+- [x] Legend gains a pins on/off toggle alongside the per-track toggles.
 
 **Verification:** `bun run --cwd ui test:unit`; manual with an album of 50+ geotagged photos and
 two tracks.
@@ -184,11 +184,11 @@ per the no-cross-workspace-import rule).
 and deliberately does not gate deletes or moves. Do not "fix" either. It also does **not** remove
 the pagination requirement in Task 2.
 
-- [ ] Confirmed 2026-09-13: the largest album is ~300 photos, so no existing album is near the cap.
-- [ ] UI (primary): hide the upload button at the cap. `photosInAlbum.length` is already in the store, so this needs no new request.
-- [ ] UI: reject a batch that would push the album over, naming how many slots remain, **before any request is made**.
-- [ ] API (backstop): `PhotoController.create` checks the album's object count before minting a presigned URL; returns `conflictError` at or over the cap. One R2 list per presign — a cheap Class A op, but note it is per-file because the endpoint is per-file.
-- [ ] Confirm an album already over the cap can still have photos deleted and moved out.
+- [x] Confirmed 2026-09-13: the largest album is ~300 photos, so no existing album is near the cap.
+- [x] UI (primary): hide the upload button at the cap. `photosInAlbum.length` is already in the store, so this needs no new request.
+- [x] UI: reject a batch that would push the album over, naming how many slots remain, **before any request is made**.
+- [x] API (backstop): `PhotoController.create` checks the album's object count before minting a presigned URL; returns `conflictError` at or over the cap. One R2 list per presign — a cheap Class A op, but note it is per-file because the endpoint is per-file.
+- [x] Confirm an album already over the cap can still have photos deleted and moved out.
 
 **Verification:** `bun run --cwd server test:server` && `bun run --cwd ui test:unit`
 **Dependencies:** None — this can run before, during or after the other five. **Scope:** M
@@ -196,12 +196,70 @@ the pagination requirement in Task 2.
 
 ### Checkpoint: complete
 
-- [ ] Root `type-check`, `test:all`, `lint`, `build` pass
-- [ ] Geotagged photos appear as pins above the track lines, and clicking one opens the lightbox
-- [ ] The backfill has been run once against a real album with mixed geotagged and non-geotagged photos
-- [ ] `.husky/pre-push` passes
+- [x] Root `type-check`, `test:all`, `lint`, `build` pass
+- [x] Geotagged photos appear as pins above the track lines, and clicking one opens the lightbox
+- [x] The backfill has been run once against a real album with mixed geotagged and non-geotagged photos
+- [x] `.husky/pre-push` passes
 
 ---
+
+## Where the implementation diverged from this plan
+
+Recorded so the next reader trusts the code over the plan where the two disagree.
+
+1. **The endpoint is `POST /api/photos/metadata/:albumId`**, not
+   `POST /api/albums/:albumId/photos/metadata`. It follows the prefix every other photo
+   route already uses; §9 of the design defers reshaping those, and inventing a second
+   convention ahead of that change would have made the reshape harder, not easier.
+2. **No manual GPS sign handling.** `exifreader`'s expanded `gps` block already applies the
+   `GPSLatitudeRef === 'S'` / `GPSLongitudeRef === 'W'` conventions, verified against
+   fixtures in all four hemispheres. `utils/exif-gps.ts` exists as planned and owns
+   extraction, but it does not duplicate `PhotoInfoPanel.vue`'s arithmetic — that copy
+   could only drift.
+3. **`Photo` gained `hasGps` as well as the coordinates.** Without it, a photo that
+   genuinely carries no GPS is indistinguishable from one never scanned, and Task 4's
+   "re-running the scan is close to a no-op" could not be satisfied.
+4. **The layer ordering was rebuilt rather than relied on** — see Task 5 above.
+5. **Server tests are `.test.ts`**, matching every other file in `server/test/`, rather
+   than the `.spec.ts` this plan named. `.spec.ts` is the UI workspace's convention.
+
+## Checked against a real bucket
+
+A throwaway object was written to the dev bucket and deleted again, exercising the exact
+production path — `CopyObject` with `MetadataDirective: 'REPLACE'`, then read back:
+
+```
+Metadata sent    : { latitude: '-36.8', takenAt: '...', hasGps: 'true' }
+Metadata stored  : { hasgps: 'true', latitude: '-36.8', takenat: '...' }
+ContentType      : text/plain      (preserved)
+```
+
+Two results:
+
+- **`ContentType` survives `REPLACE`** when passed alongside the metadata. Photos do not
+  come back as `application/octet-stream`.
+- **R2 lowercases custom-metadata keys.** They travel as `x-amz-meta-<key>` headers, so
+  `takenAt` and `hasGps` are stored as `takenat` and `hasgps`. This was a live bug: the
+  reader looked for the camelCase spellings and found nothing, so `hasGps` always read
+  back `undefined` and every photo looked unscanned — each re-scan would have re-read the
+  whole album. `PHOTO_METADATA_KEYS` in `server/src/constants.ts` now owns the spellings
+  for both the writer and the reader. `latitude`/`longitude` were unaffected, which is
+  exactly why it would have gone unnoticed: the pins worked.
+
+## Still unproven
+
+- **128 KB is enough for a real camera's EXIF.** The APP1 segment is capped at 64 KB by the
+  format and sits immediately after the SOI, so this is generously sized, but a camera
+  writing a large thumbnail ahead of the GPS IFD would be missed. Such a photo reports no
+  GPS rather than failing, and the fix is to raise `EXIF_READ_BYTES`.
+- **The 50-photo batch budget.** Each key costs a ranged `bucket.get` plus an S3
+  `CopyObject` — roughly 100 R2 operations and up to 6.4 MB parsed per request. Measure one
+  real 50-photo batch before trusting it at scale. `PhotoMetadataRequestSchema`'s cap and
+  the UI's `BATCH_SIZE` are the knob, and they must move together.
+- **The 1000-photo cap against real album sizes.** §5.5 assumed the largest album holds
+  ~300 photos. That was measured against the dev data. If a production album is at or over
+  1000, uploads to it now return `409` — verify before merging, and raise or drop the cap
+  if so.
 
 ## Post-merge rollout (human)
 

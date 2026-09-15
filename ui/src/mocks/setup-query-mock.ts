@@ -1,6 +1,7 @@
 import { mockFeaturedAlbums } from '@/mocks/aggregate-handler';
 import { mockAlbums } from '@/mocks/album-handler';
 import { mockTrackFeature, mockTrackManifest } from '@/mocks/gps-track-handler';
+import { mockPhotoResponse } from '@/mocks/photos-handler';
 import { mockTravelRecords } from '@/mocks/travel-records-handler';
 import {
   useMutation,
@@ -36,6 +37,8 @@ const dataForKey = (queryKey: unknown): unknown => {
       return mockTravelRecords;
     case 'gpsTracks':
       return mockTrackManifest;
+    case 'photos':
+      return mockPhotoResponse;
     case 'gpsTrack':
       return mockTrackFeature;
     default:

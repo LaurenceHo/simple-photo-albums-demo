@@ -107,17 +107,71 @@ bun install
    The middleware fails open when the binding is missing, so local dev still works without it —
    you just get no rate limiting.
 
+3. `wrangler.toml` also needs the R2 bucket binding, and in the **default (dev) block it must be
+   marked `remote`**:
+
+   ```toml
+   # Default (dev) block
+   [[r2_buckets]]
+   binding = "BUCKET"
+   bucket_name = "your-bucket-name"
+   remote = true
+
+   # Under [env.production] — no `remote`, it is already the real bucket there
+   [[env.production.r2_buckets]]
+   binding = "BUCKET"
+   bucket_name = "your-bucket-name"
+   ```
+
+   **Why `remote = true` matters.** The photo listing reads `customMetadata` — where each photo's
+   GPS coordinates live — and only the native binding returns that with a listing, so it cannot use
+   the S3 client. A plain local binding is an empty Miniflare store, which makes every album show
+   **zero photos** in local dev. `remote = true` proxies just this binding to the real bucket; D1,
+   the rate limiter and every var stay local.
+
+   This is why `start:wrangler` runs `wrangler dev` rather than `wrangler dev --local` — `--local`
+   means "run locally with remote bindings disabled", which would switch the proxying back off.
+   Remote bindings authenticate with your Cloudflare login, so run `wrangler login` once (or set
+   `CLOUDFLARE_API_TOKEN`). Note that local dev then performs real R2 Class A operations.
+
+4. The **dev** D1 binding is marked `remote` for the same reason:
+
+   ```toml
+   # Default (dev) block
+   [[d1_databases]]
+   binding = "DB"
+   database_name = "your-dev-db-name"
+   database_id = "your-dev-db-id"
+   remote = true
+   ```
+
+   Keeping a local SQLite copy in step with the remote one by hand drifts out of sync, and an
+   album row that exists in one but not the other is confusing to debug — the photo list reads the
+   album from D1 and the photos from R2, so a mismatch shows as an album that exists but appears
+   empty, or photos with no album.
+
+   > **Local writes are real writes.** With this set, deleting or renaming an album in local dev
+   > changes the deployed dev/demo site too. If you want a throwaway database for a destructive
+   > experiment, drop `remote = true` from this block and run the migrations locally first.
+
+   Leave `[env.production]` without `remote` — it is already the real database there, and the flag
+   only affects local dev.
+
 ### Database Migration
 
 Run the migrations to set up your database schema:
 
 ```bash
-# For local development
-wrangler d1 execute photo-albums-db --local --file=./migrations/0000_initial.sql
+# Dev database. `--remote` even for development: the dev D1 binding is marked
+# `remote = true`, so local dev reads this database rather than a local copy.
+wrangler d1 execute <your-dev-db-name> --remote --file=./migrations/0000_initial.sql
 
-# For production
-wrangler d1 execute photo-albums-db --remote --file=./migrations/0000_initial.sql
+# Production
+wrangler d1 execute <your-prod-db-name> --remote --file=./migrations/0000_initial.sql
 ```
+
+`--local` only makes sense if you have dropped `remote = true` from the dev `[[d1_databases]]`
+block to work against a throwaway database; the Worker ignores the local copy otherwise.
 
 For existing databases, run the flight columns migration:
 

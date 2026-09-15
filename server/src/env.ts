@@ -13,6 +13,13 @@ export interface RateLimiter {
 
 export interface Env {
   DB: D1Database;
+  /**
+   * Native R2 binding, alongside the S3 client in `r2-service.ts`.
+   *
+   * Required rather than optional: the photo listing reads `customMetadata` through
+   * it, so a deploy without it is a broken deploy, not a degraded one.
+   */
+  BUCKET: R2Bucket;
   RATE_LIMITER?: RateLimiter;
   REGION_NAME: string;
   VITE_IMAGEKIT_CDN_URL: string;
@@ -32,6 +39,13 @@ export interface Env {
 
 export type Bindings = {
   DB: D1Database;
+  /**
+   * Native R2 binding, alongside the S3 client in `r2-service.ts`.
+   *
+   * Required rather than optional: the photo listing reads `customMetadata` through
+   * it, so a deploy without it is a broken deploy, not a degraded one.
+   */
+  BUCKET: R2Bucket;
   /** Optional: absent in tests and in some local wrangler configs. See rate-limit-middleware.ts. */
   RATE_LIMITER?: RateLimiter;
   REGION_NAME: string;

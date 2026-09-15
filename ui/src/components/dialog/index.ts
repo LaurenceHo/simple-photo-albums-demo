@@ -4,6 +4,7 @@ import CreateTravelRecords from '@/components/dialog/CreateTravelRecords.vue';
 import DeletePhotos from '@/components/dialog/DeletePhotos.vue';
 import MovePhotos from '@/components/dialog/MovePhotos.vue';
 import RenamePhoto from '@/components/dialog/RenamePhoto.vue';
+import ScanPhotoLocations from '@/components/dialog/ScanPhotoLocations.vue';
 import ShowAlbumTags from '@/components/dialog/ShowAlbumTags.vue';
 import ShowTravelRecords from '@/components/dialog/ShowTravelRecords.vue';
 
@@ -14,6 +15,7 @@ export {
   DeletePhotos,
   MovePhotos,
   RenamePhoto,
+  ScanPhotoLocations,
   ShowAlbumTags,
   ShowTravelRecords,
 };

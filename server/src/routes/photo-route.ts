@@ -4,6 +4,7 @@ import PhotoController from '../controllers/photo-controller';
 import { HonoEnv } from '../env';
 import {
   MovePhotosRequestSchema,
+  PhotoMetadataRequestSchema,
   PhotosRequestSchema,
   RenamePhotoRequestSchema,
   UploadPhotoQuerySchema,
@@ -27,6 +28,16 @@ app.post(
 );
 
 app.get('/api/photos/:year/:albumId', controller.findAll);
+
+// Admin-only: reads each photo's leading bytes from R2 and writes the EXIF GPS it finds
+// back as custom metadata. Both the post-upload call and the backfill scan use this.
+app.post(
+  '/api/photos/metadata/:albumId',
+  verifyJwtClaim,
+  verifyUserPermission,
+  zValidator('json', PhotoMetadataRequestSchema),
+  controller.extractMetadata,
+);
 
 // Move requires a destination; delete below does not. Hence the two schemas.
 app.put(

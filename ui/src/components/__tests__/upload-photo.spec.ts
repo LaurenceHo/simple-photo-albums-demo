@@ -9,7 +9,7 @@ import Button from 'primevue/button';
 import PrimeVue from 'primevue/config';
 import Message from 'primevue/message';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 
 vi.mock('primevue/usetoast', () => ({
   useToast: vi.fn(() => ({
@@ -26,6 +26,9 @@ vi.mock('@/services/photo-service', () => ({
 vi.mock('@/stores/photo', () => ({
   usePhotoStore: vi.fn(() => ({
     findPhotoIndex: vi.fn().mockReturnValue(-1),
+    // The upload store reads this to work out how many slots the album has left, so it
+    // has to be a real ref for `storeToRefs` to hand back.
+    photosInAlbum: ref([]),
   })),
 }));
 

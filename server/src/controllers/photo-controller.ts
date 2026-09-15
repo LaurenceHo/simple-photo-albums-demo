@@ -4,9 +4,16 @@ import { HonoEnv, ValidatedJsonContext, ValidatedQueryContext } from '../env';
 import AlbumService from '../services/album-service';
 import R2Service from '../services/r2-service';
 import { PhotoResponse, PhotosRequest, RenamePhotoRequest } from '../types';
-import { MovePhotosRequest, UploadPhotoQuery } from '../types/api-response';
+import {
+  MovePhotosRequest,
+  PhotoMetadataRequest,
+  PhotoMetadataResult,
+  UploadPhotoQuery,
+} from '../types/api-response';
 import { Album } from '../types/album';
-import { buildR2Config, deleteObjects } from '../utils/helpers';
+import { MAX_PHOTOS_PER_ALBUM, PHOTO_METADATA_KEYS } from '../constants';
+import { EXIF_READ_BYTES, extractPhotoMetadata } from '../utils/exif-gps';
+import { buildR2Config, deleteObjects, forLog } from '../utils/helpers';
 import { BaseController } from './base-controller';
 
 export default class PhotoController extends BaseController {
@@ -21,7 +28,6 @@ export default class PhotoController extends BaseController {
     const albumService = new AlbumService(c.env.DB);
     const r2Config = buildR2Config(c.env);
     const r2Service = new R2Service(r2Config);
-    const bucketName = c.env.R2_BUCKET_NAME;
 
     try {
       const album = await albumService.getById(albumId);
@@ -41,15 +47,17 @@ export default class PhotoController extends BaseController {
       // escape the album's own folder. The album must exist under the once-decoded id
       // anyway, since that is what `getById` above matched.
       const folderNameKey = albumId + '/';
-      const photos = await r2Service.findAll({
-        Prefix: folderNameKey,
-        Bucket: bucketName,
-        MaxKeys: 1000,
-        StartAfter: folderNameKey,
-      });
+      const photos = await r2Service.findAll(c.env.BUCKET, folderNameKey);
 
-      // Synchronize album cover
-      await this.syncAlbumCover(albumService, album, photos);
+      // `syncAlbumCover` writes to D1 during what is otherwise a read-only photo-list
+      // GET, so its own failure must not cost the caller the list they asked for.
+      // Sharing the outer `catch` meant a failed cover update returned a 500 with no
+      // photos, for a request whose photos had already been fetched successfully.
+      try {
+        await this.syncAlbumCover(albumService, album, photos);
+      } catch (err: any) {
+        console.error('Failed to sync album cover: %s', err);
+      }
 
       return this.ok<PhotoResponse>(c, 'ok', { album, photos });
     } catch (err: any) {
@@ -108,6 +116,26 @@ export default class PhotoController extends BaseController {
     const filePath = `${albumId}/${filename}`;
 
     try {
+      // A backstop for "far over", not "exactly at". This endpoint is per-file and the
+      // uploader fires its requests in parallel, so fifty requests against a 990-photo
+      // album all see 990 and all pass. The UI, which knows the batch size before it
+      // starts, is the check that actually holds the line; making this one exact would
+      // need coordination not worth building for a single-admin app.
+      //
+      // It gates *adding* only. Deleting and moving photos out of an album that is
+      // already over the cap must keep working, which is why no other handler consults it.
+      const photoCount = await r2Service.countObjects(
+        c.env.BUCKET,
+        `${albumId}/`,
+        MAX_PHOTOS_PER_ALBUM,
+      );
+      if (photoCount >= MAX_PHOTOS_PER_ALBUM) {
+        return this.conflictError(
+          c,
+          `This album already holds the maximum of ${MAX_PHOTOS_PER_ALBUM} photos`,
+        );
+      }
+
       const uploadUrl = await r2Service.getPresignedUploadUrl(
         c.env.R2_BUCKET_NAME,
         filePath,
@@ -121,6 +149,106 @@ export default class PhotoController extends BaseController {
       return this.fail(c, 'Failed to generate upload URL');
     }
   };
+
+  /**
+   * Scan photos for EXIF GPS and store what is found as R2 custom metadata.
+   *
+   * One endpoint serves both callers: the uploader, straight after an upload, and the
+   * admin backfill over photos already in the bucket.
+   *
+   * Each photo is independent. One that cannot be read or parsed is reported in its own
+   * result entry and the rest of the batch continues — a single corrupt file must not
+   * cost an admin the other forty-nine.
+   */
+  extractMetadata = async (c: ValidatedJsonContext<PhotoMetadataRequest>) => {
+    const albumId = c.req.param('albumId');
+    if (!albumId || /[/\\]/.test(albumId) || albumId === '.' || albumId === '..') {
+      return this.clientError(c, 'Invalid album ID');
+    }
+
+    const { photoKeys } = c.req.valid('json');
+    const r2Service = new R2Service(buildR2Config(c.env));
+    const bucketName = c.env.R2_BUCKET_NAME;
+
+    const results = await Promise.all(
+      photoKeys.map((photoKey) =>
+        this.scanPhoto(r2Service, c.env.BUCKET, bucketName, albumId, photoKey),
+      ),
+    );
+
+    return this.ok(c, 'ok', { results });
+  };
+
+  /**
+   * Read one photo's EXIF and write the result back to its R2 custom metadata.
+   *
+   * @param r2Service Service used for the ranged read and the in-place copy.
+   * @param bucket The `BUCKET` binding.
+   * @param bucketName Name of the R2 bucket, for the copy source.
+   * @param albumId Album the photo belongs to.
+   * @param photoKey The photo's filename within the album.
+   * @returns A result entry for this photo; never throws.
+   */
+  private async scanPhoto(
+    r2Service: R2Service,
+    bucket: R2Bucket,
+    bucketName: string,
+    albumId: string,
+    photoKey: string,
+  ): Promise<PhotoMetadataResult> {
+    const key = `${albumId}/${photoKey}`;
+
+    try {
+      const object = await r2Service.readRange(bucket, key, EXIF_READ_BYTES);
+      if (!object) {
+        return { photoKey, status: 'notFound' };
+      }
+
+      const { coordinates, takenAt } = extractPhotoMetadata(object.bytes);
+
+      // REPLACE discards every existing key, so the new metadata has to be the complete
+      // set. The three fields this owns are rebuilt from what was just parsed; anything
+      // else on the object is carried through untouched.
+      //
+      // Keys come from `PHOTO_METADATA_KEYS` because R2 lowercases them in transit — see
+      // the note there. Spelling one of them camelCase here would store a key the reader
+      // never finds.
+      const metadata: Record<string, string> = { ...object.customMetadata };
+      delete metadata[PHOTO_METADATA_KEYS.latitude];
+      delete metadata[PHOTO_METADATA_KEYS.longitude];
+      delete metadata[PHOTO_METADATA_KEYS.takenAt];
+
+      if (coordinates) {
+        metadata[PHOTO_METADATA_KEYS.latitude] = String(coordinates.latitude);
+        metadata[PHOTO_METADATA_KEYS.longitude] = String(coordinates.longitude);
+      }
+      if (takenAt) {
+        metadata[PHOTO_METADATA_KEYS.takenAt] = takenAt;
+      }
+
+      // Recorded either way, so a photo with no GPS is marked as *scanned* rather than
+      // looking identical to one that has never been read. Without it every re-scan
+      // would read every un-located photo again, forever.
+      metadata[PHOTO_METADATA_KEYS.hasGps] = coordinates ? 'true' : 'false';
+
+      const written = await r2Service.replaceCustomMetadata(
+        bucketName,
+        key,
+        metadata,
+        object.contentType,
+      );
+      if (!written) {
+        return { photoKey, status: 'failed', message: 'Could not write metadata' };
+      }
+
+      return coordinates
+        ? { photoKey, status: 'located', ...coordinates, ...(takenAt ? { takenAt } : {}) }
+        : { photoKey, status: 'noGps' };
+    } catch (err: any) {
+      console.error('Failed to extract metadata for %s: %s', forLog(key), err);
+      return { photoKey, status: 'failed', message: 'Could not read photo' };
+    }
+  }
 
   /**
    * Move photos to another album

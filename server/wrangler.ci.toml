@@ -23,6 +23,15 @@ binding = "DB"
 database_name = "${DEV_PHOTO_ALBUMS_DB_NAME}"
 database_id = "${DEV_PHOTO_ALBUMS_DB_ID}"
 
+# Native R2 binding, alongside the S3 client the Worker already uses.
+#
+# `bucket_name` reads the same `${R2_BUCKET_NAME}` the [vars] block below does, so the
+# binding and the S3 path always address the same bucket and no new GitHub secret is
+# needed. See the note above [[d1_databases]] for why both blocks read unprefixed names.
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "${R2_BUCKET_NAME}"
+
 # Per-IP rate limiting. `period` accepts only 10 or 60 seconds.
 #
 # `namespace_id` must differ between this block and [env.production] below: Cloudflare
@@ -48,6 +57,11 @@ ALBUM_URL = "${ALBUM_URL}"
 binding = "DB"
 database_name = "${PROD_PHOTO_ALBUMS_DB_NAME}"
 database_id = "${PROD_PHOTO_ALBUMS_DB_ID}"
+
+# Separate binding block for production - see the note on the default [[r2_buckets]].
+[[env.production.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "${R2_BUCKET_NAME}"
 
 # Separate namespace from the dev block above - see the note there.
 [[env.production.unsafe.bindings]]

@@ -21,7 +21,7 @@
     "@vuelidate/validators": "^2.0.4",
     "dompurify": "^3.4.15",
     "embla-carousel-vue": "^8.6.0",
-    "exifreader": "^4.44.1",
+    "exifreader": "^4.45.0",
     "mapbox-gl": "^3.30.0",
     "pinia": "4.0.3",
     "primevue": "^5.0.1",
