@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full w-full flex-col gap-3 lg:flex-row">
+  <div class="flex h-full w-full flex-col gap-3">
     <!--
       Ordered so the map container is created exactly once, when there is something to
       draw. Leading with the empty state meant that during the manifest fetch - when
@@ -13,95 +13,114 @@
       data-test-id="track-map-loading"
     ></div>
 
-    <!-- Empty only when there is nothing at all to draw. An album with geotagged photos
-         but no tracks still has a map worth showing, so the guard is not `!hasTracks`. -->
+    <!-- Empty only when there is genuinely nothing to put on a map: no track, no located
+         photo, and no album location either. An album carrying any one of those has a map
+         worth drawing, so this is not guarded on `hasTracks` alone. -->
     <div
-      v-else-if="!hasTracks && !hasPinnedPhotos"
+      v-else-if="!hasAnythingToMap"
       class="text-surface-500 dark:text-surface-400 flex h-64 w-full items-center justify-center rounded-md border border-dashed border-surface-300 dark:border-surface-700 p-6 text-center"
       data-test-id="track-map-empty"
     >
       <p>
-        Nothing to map for this album yet — no GPS tracks, and no photos with a location.<br />
+        Nothing to map for this album yet — no GPS tracks, no photos with a location, and no
+        album location.<br />
         <!-- Only an admin can act on this, and telling a visitor to use a control they
              cannot see is worse than saying nothing. -->
         <span v-if="isAdmin" class="text-sm">
-          Add a track from Edit album &rsaquo; GPS tracks, or use Scan photo locations.
+          Add a track from Edit album &rsaquo; GPS tracks, set a location from Edit album, or
+          use Scan photo locations.
         </span>
       </p>
     </div>
 
     <template v-else>
-      <!-- A named `<section>` is a region landmark, so a screen reader can jump to the map
-           and announce it. Previously a `div` with `role="group"`, which is weaker (group
-           is not a landmark) and is the ARIA role semantic HTML already covers. -->
-      <section
-        :id="mapId"
-        ref="mapContainer"
-        aria-label="Album GPS track map"
-        class="h-[60vh] w-full grow rounded-md lg:h-[70vh]"
-        data-test-id="track-map"
-      ></section>
-
-      <ul
-        v-if="legend.length || hasPinnedPhotos"
-        class="dark:bg-surface-800/50 border-surface-200 dark:border-surface-800 flex w-full shrink-0 flex-col gap-1 rounded-md border bg-gray-50/50 p-2 lg:w-64"
-        data-test-id="track-legend"
+      <!-- Above the map rather than instead of it. The album's own location is still worth
+           showing on its own, so the map draws that pin and this explains why it is the
+           only thing on it. -->
+      <div
+        v-if="!hasTracks && !hasPinnedPhotos"
+        class="text-surface-500 dark:text-surface-400 border-surface-200 dark:border-surface-800 dark:bg-surface-800/50 w-full rounded-md border bg-gray-50/50 p-3 text-sm"
+        data-test-id="track-map-place-only"
       >
-        <!-- Same row shape as a track, so the two read as one list of things you can turn
-             on and off rather than a track list with an unrelated checkbox bolted on. -->
-        <li v-if="hasPinnedPhotos">
-          <button
-            :aria-pressed="showPhotoPins"
-            :class="[
-              'flex w-full items-center gap-2 rounded-md p-2 text-left',
-              'hover:bg-surface-200/60 dark:hover:bg-surface-700/60',
-              { 'opacity-50': !showPhotoPins },
-            ]"
-            data-test-id="photo-pins-legend-item"
-            type="button"
-            @click="showPhotoPins = !showPhotoPins"
-          >
-            <IconMapPin :size="12" aria-hidden="true" class="shrink-0 text-[#637A90]" />
-            <span class="min-w-0 grow">
-              <span class="text-surface-900 dark:text-surface-300 block truncate">Photos</span>
-              <small class="text-surface-400">
-                {{ pinnedPhotos.length }} with a location
-              </small>
-            </span>
-          </button>
-        </li>
-        <li v-for="item in legend" :key="item.trackId">
-          <button
-            :aria-pressed="item.visible"
-            :class="[
-              'flex w-full items-center gap-2 rounded-md p-2 text-left',
-              'hover:bg-surface-200/60 dark:hover:bg-surface-700/60',
-              { 'opacity-50': !item.visible },
-            ]"
-            data-test-id="track-legend-item"
-            type="button"
-            @click="toggleTrack(item.trackId)"
-          >
-            <!-- aria-hidden: the swatch repeats the colour, which carries no meaning a
-                 screen reader can use. Visibility is conveyed by aria-pressed instead. -->
-            <span
-              :style="{ backgroundColor: item.colour }"
-              aria-hidden="true"
-              class="h-3 w-3 shrink-0 rounded-full"
-            ></span>
-            <span class="min-w-0 grow">
-              <span class="text-surface-900 dark:text-surface-300 block truncate">
-                {{ item.label }}
+        No GPS tracks or photos with a location yet — the pin is the album's own location.
+        <span v-if="isAdmin">
+          Add a track from Edit album &rsaquo; GPS tracks, or use Scan photo locations.
+        </span>
+      </div>
+
+      <div class="flex h-full w-full flex-col gap-3 lg:flex-row">
+        <!-- A named `<section>` is a region landmark, so a screen reader can jump to the map
+             and announce it. Previously a `div` with `role="group"`, which is weaker (group
+             is not a landmark) and is the ARIA role semantic HTML already covers. -->
+        <section
+          :id="mapId"
+          ref="mapContainer"
+          aria-label="Album GPS track map"
+          class="h-[60vh] w-full grow rounded-md lg:h-[70vh]"
+          data-test-id="track-map"
+        ></section>
+
+        <ul
+          v-if="legend.length || hasPinnedPhotos"
+          class="dark:bg-surface-800/50 border-surface-200 dark:border-surface-800 flex w-full shrink-0 flex-col gap-1 rounded-md border bg-gray-50/50 p-2 lg:w-64"
+          data-test-id="track-legend"
+        >
+          <!-- Same row shape as a track, so the two read as one list of things you can turn
+               on and off rather than a track list with an unrelated checkbox bolted on. -->
+          <li v-if="hasPinnedPhotos">
+            <button
+              :aria-pressed="showPhotoPins"
+              :class="[
+                'flex w-full items-center gap-2 rounded-md p-2 text-left',
+                'hover:bg-surface-200/60 dark:hover:bg-surface-700/60',
+                { 'opacity-50': !showPhotoPins },
+              ]"
+              data-test-id="photo-pins-legend-item"
+              type="button"
+              @click="showPhotoPins = !showPhotoPins"
+            >
+              <IconMapPin :size="12" aria-hidden="true" class="shrink-0 text-[#637A90]" />
+              <span class="min-w-0 grow">
+                <span class="text-surface-900 dark:text-surface-300 block truncate">Photos</span>
+                <small class="text-surface-400">
+                  {{ pinnedPhotos.length }} with a location
+                </small>
               </span>
-              <small v-if="item.isError" class="text-red-600">Could not load this track</small>
-              <small v-else-if="item.isLoading" class="text-surface-400">Loading…</small>
-              <small v-else-if="item.distanceKm !== undefined" class="text-surface-400">
-                {{ item.distanceKm.toFixed(1) }} km
-              </small>
-            </span>
-          </button>
-        </li>
-      </ul>
+            </button>
+          </li>
+          <li v-for="item in legend" :key="item.trackId">
+            <button
+              :aria-pressed="item.visible"
+              :class="[
+                'flex w-full items-center gap-2 rounded-md p-2 text-left',
+                'hover:bg-surface-200/60 dark:hover:bg-surface-700/60',
+                { 'opacity-50': !item.visible },
+              ]"
+              data-test-id="track-legend-item"
+              type="button"
+              @click="toggleTrack(item.trackId)"
+            >
+              <!-- aria-hidden: the swatch repeats the colour, which carries no meaning a
+                   screen reader can use. Visibility is conveyed by aria-pressed instead. -->
+              <span
+                :style="{ backgroundColor: item.colour }"
+                aria-hidden="true"
+                class="h-3 w-3 shrink-0 rounded-full"
+              ></span>
+              <span class="min-w-0 grow">
+                <span class="text-surface-900 dark:text-surface-300 block truncate">
+                  {{ item.label }}
+                </span>
+                <small v-if="item.isError" class="text-red-600">Could not load this track</small>
+                <small v-else-if="item.isLoading" class="text-surface-400">Loading…</small>
+                <small v-else-if="item.distanceKm !== undefined" class="text-surface-400">
+                  {{ item.distanceKm.toFixed(1) }} km
+                </small>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </div>
     </template>
   </div>
 </template>
@@ -168,6 +187,21 @@ const pinnedPhotos = computed(() =>
 
 const hasPinnedPhotos = computed(() => pinnedPhotos.value.length > 0);
 
+/** The album's own location, drawn as a marker whether or not it has tracks or pins. */
+const place = computed(() => currentAlbum.value.place);
+
+/**
+ * Whether there is anything at all to put on a map.
+ *
+ * The album's own `place` counts. It used to be shown through a popover button in the
+ * toolbar — a 250px map of a single point — which was removed because this map already
+ * drops the same marker. That only holds if an album with a location but no track and no
+ * located photo still renders the map, so `place` has to keep the panel alive on its own.
+ */
+const hasAnythingToMap = computed(
+  () => hasTracks.value || hasPinnedPhotos.value || !!place.value,
+);
+
 /**
  * The pin layer's data.
  *
@@ -211,8 +245,6 @@ let hasFittedBounds = false;
 
 const sourceId = (trackId: string) => `track-${trackId}`;
 const layerId = (trackId: string) => `track-line-${trackId}`;
-
-const place = computed(() => currentAlbum.value.place);
 
 /**
  * Bounds covering every track line **and** every photo pin.

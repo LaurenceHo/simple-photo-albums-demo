@@ -35,14 +35,24 @@ export const mockTrackFeature = {
   },
 };
 
-export const getGpsTracks = http.get('*/albums/:albumId/gps-tracks', async () => {
+/**
+ * Albums deliberately left without any GPS track.
+ *
+ * Returning a manifest for every album made the "no tracks" states unreachable in the
+ * MSW-backed dev server — including the map panel showing only the album's own location,
+ * and the empty state for an album with nothing mappable at all. Most real albums have no
+ * track, so this is also the more representative fixture.
+ */
+const ALBUMS_WITHOUT_TRACKS = new Set(['demo-album-4', 'demo-album2']);
+
+export const getGpsTracks = http.get('*/albums/:albumId/gps-tracks', async ({ params }) => {
   await delay();
 
   return HttpResponse.json({
     code: 200,
     status: 'Success',
     message: 'ok',
-    data: mockTrackManifest,
+    data: ALBUMS_WITHOUT_TRACKS.has(String(params['albumId'])) ? [] : mockTrackManifest,
   });
 });
 

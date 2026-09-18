@@ -371,7 +371,16 @@ describe('PhotoList.vue view modes', () => {
   });
 });
 
-describe('PhotoList.vue album place popover', () => {
+/**
+ * The album's own location used to sit behind a popover button in the toolbar, showing a
+ * 250px map of a single point. It was removed: the map view already drops that same
+ * marker, so the popover was a worse version of the view beside it.
+ *
+ * That removal only holds if the map view is *reachable* for an album whose only mappable
+ * thing is its location — otherwise a visitor loses the ability to see it at all. These
+ * cover that, which is the part a reader would not guess from the deletion alone.
+ */
+describe('PhotoList.vue album location', () => {
   const PLACE = {
     displayName: 'Valencia',
     formattedAddress: 'Valencia, Spain',
@@ -384,17 +393,17 @@ describe('PhotoList.vue album place popover', () => {
         plugins: [PrimeVue, ToastService],
         directives: { tooltip: {} },
         stubs: {
-          Popover: true,
           teleport: true,
           AlbumTrackMap: true,
           EditPhoto: true,
           EditPhotoButton: true,
           CreateAlbum: true,
-          // Instantiates mapbox-gl, which jsdom cannot give a WebGL canvas.
-          PhotoLocationMap: true,
         },
       },
     });
+
+  const styleOptions = (wrapper: ReturnType<typeof mountWithStubs>) =>
+    (wrapper.vm as unknown as { photoStyleOptions: string[] }).photoStyleOptions;
 
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
@@ -410,45 +419,65 @@ describe('PhotoList.vue album place popover', () => {
     );
   });
 
-  it('offers the place popover when the album has a location and no track', () => {
-    const wrapper = mountWithStubs();
-
-    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(true);
-  });
-
-  it('hides the place popover once the album has a track', () => {
-    // The track map already drops a marker on `place`, so the popover would be showing a
-    // worse version of what the map view shows.
-    mockGpsTrackStore.hasTracks.value = true;
-
+  it('no longer offers a separate popover button for the location', () => {
     const wrapper = mountWithStubs();
 
     expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
   });
 
-  it('hides it when the album has no location at all', () => {
+  // The whole point of removing the popover: the map view has to be the way to see it.
+  it('offers the map view for an album whose only mappable thing is its location', () => {
+    const wrapper = mountWithStubs();
+
+    expect(styleOptions(wrapper)).toContain('map');
+  });
+
+  it('still offers the map view once the album also has a track', () => {
+    mockGpsTrackStore.hasTracks.value = true;
+
+    const wrapper = mountWithStubs();
+
+    expect(styleOptions(wrapper)).toContain('map');
+  });
+
+  // Nothing to draw and no way to add anything: a visitor should not be offered an empty
+  // map. An admin still is, because they are the one who would add the first track.
+  it('withholds the map view from a visitor when there is nothing at all to map', () => {
     mockAlbumStore.currentAlbum.value = {
       ...mockAlbumStore.currentAlbum.value,
       place: undefined,
     };
+    mockPhotoStore.photosInAlbum.value = PHOTOS.map((photo) => ({ ...photo }));
 
     const wrapper = mountWithStubs();
 
-    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
+    expect(styleOptions(wrapper)).not.toContain('map');
   });
 
-  it('swaps the popover for the map option in one step as tracks load', async () => {
+  it('offers the map view to an admin even with nothing to map yet', () => {
+    mockAlbumStore.currentAlbum.value = {
+      ...mockAlbumStore.currentAlbum.value,
+      place: undefined,
+    };
+    mockUserConfigStore.isAdmin.value = true;
+
     const wrapper = mountWithStubs();
-    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(true);
 
-    mockGpsTrackStore.hasTracks.value = true;
-    await nextTick();
+    expect(styleOptions(wrapper)).toContain('map');
+  });
 
-    // Both flip on the same `hasTracks`, so the toolbar settles once rather than the two
-    // controls changing independently.
-    expect(wrapper.find('[data-test-id="album-map-button"]').exists()).toBe(false);
-    expect((wrapper.vm as unknown as { photoStyleOptions: string[] }).photoStyleOptions).toContain(
-      'map',
-    );
+  it('offers the map view when a photo has coordinates but the album has no location', () => {
+    mockAlbumStore.currentAlbum.value = {
+      ...mockAlbumStore.currentAlbum.value,
+      place: undefined,
+    };
+    mockPhotoStore.photosInAlbum.value = [
+      { ...PHOTOS[0], latitude: -36.85, longitude: 174.76 },
+      ...PHOTOS.slice(1),
+    ] as typeof PHOTOS;
+
+    const wrapper = mountWithStubs();
+
+    expect(styleOptions(wrapper)).toContain('map');
   });
 });

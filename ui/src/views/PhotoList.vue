@@ -32,31 +32,9 @@
               </template>
             </template>
           </SelectButton>
-          <template v-if="showPlacePopover">
-            <Button
-              class="ml-2 shrink-0"
-              data-test-id="album-map-button"
-              outlined
-              severity="secondary"
-              @click="toggle"
-            >
-              <template #icon>
-                <IconMap2 :size="24" />
-              </template>
-            </Button>
-            <Popover ref="showMap">
-              <div class="flex flex-col gap-4">
-                <h3 class="text-surface-900 dark:text-surface-300 text-lg">
-                  {{ currentAlbum.place?.displayName }}
-                </h3>
-                <PhotoLocationMap
-                  :latitude="currentAlbum.place?.location.latitude"
-                  :longitude="currentAlbum.place?.location.longitude"
-                  style="width: 250px"
-                />
-              </div>
-            </Popover>
-          </template>
+          <!-- The album's location used to live behind a popover button here, showing a
+               250px map of a single point. The map view now always drops that same marker,
+               so the popover was a worse version of the view sitting next to it. -->
           <!-- Eye-off, not a padlock: unlisted hides the album from the site, it does
                not make its photos confidential. A lock would imply otherwise. -->
           <IconEyeOff
@@ -289,7 +267,6 @@ import {
 import Photo from '@/components/Photo.vue';
 import AlbumTrackMap from '@/components/AlbumTrackMap.vue';
 import PhotoDetail from '@/components/PhotoDetail.vue';
-import PhotoLocationMap from '@/components/PhotoLocationMap.vue';
 import SkeletonPhotoList from '@/components/SkeletonPhotoList.vue';
 import UploadPhotos from '@/components/UploadPhotos.vue';
 import type { Album } from '@/schema';
@@ -308,7 +285,6 @@ import {
   IconLayoutGrid,
   IconList,
   IconEyeOff,
-  IconMap2,
   IconMapPin,
   IconEdit,
   IconPhotoUp,
@@ -319,7 +295,7 @@ import {
 } from '@tabler/icons-vue';
 import { MAX_PHOTOS_PER_ALBUM } from '@/utils/photo-limits';
 import { storeToRefs } from 'pinia';
-import { Button, Popover, ScrollTop, SelectButton, Tag, Toolbar } from 'primevue';
+import { Button, ScrollTop, SelectButton, Tag, Toolbar } from 'primevue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -353,7 +329,6 @@ const isAlbumFull = computed(() => photoAmount.value >= MAX_PHOTOS_PER_ALBUM);
 const photoId = computed(() => route.query['photo'] as string);
 
 const showPhotoUploader = ref(false);
-const showMap = ref();
 
 /** Whether any photo in the album has coordinates to pin on the map. */
 const hasPinnedPhotos = computed(() =>
@@ -362,33 +337,24 @@ const hasPinnedPhotos = computed(() =>
   ),
 );
 
+/** Whether the album itself carries a location, independent of its photos. */
+const hasPlace = computed(() => !!currentAlbum.value?.place);
+
 /**
- * `map` is offered when the album has something to draw — a track *or* a geotagged photo —
- * or to an admin who may be about to add the first of either. A visitor looking at an
- * album with neither never sees the option.
+ * `map` is offered when the album has something to draw — a track, a geotagged photo, or
+ * its own location — or to an admin who may be about to add the first of those. A visitor
+ * looking at an album with none of them never sees the option.
  *
- * Photos count here as well as tracks: an album can be entirely geotagged photos with no
- * GPX at all, and gating the option on tracks alone would leave a visitor no way to reach
- * pins that are sitting there ready to draw.
+ * All three count, not just tracks. An album can be entirely geotagged photos with no GPX;
+ * and since the album-`place` popover was removed, the map view is now the only way to see
+ * the album's own location, so gating it on tracks would hide that from a visitor
+ * completely.
  */
 const photoStyleOptions = computed(() =>
-  hasTracks.value || hasPinnedPhotos.value || isAdmin.value
+  hasTracks.value || hasPinnedPhotos.value || hasPlace.value || isAdmin.value
     ? ['grid', 'detail', 'map']
     : ['grid', 'detail'],
 );
-
-/**
- * The little album-`place` popover is only worth offering when there is no track.
- *
- * `AlbumTrackMap` already drops a marker on `place`, so once the album has a track the
- * popover shows a worse version of what the map view shows - a 250px map of one point,
- * next to a button that opens the real thing.
- *
- * Both this and `photoStyleOptions` above flip on the same `hasTracks`, so as the
- * manifest loads the toolbar settles in one step: the popover button gives way to the map
- * option rather than the two changing independently.
- */
-const showPlacePopover = computed(() => !!currentAlbum.value?.place && !hasTracks.value);
 
 /**
  * Grid is the default. The query value is checked against the known styles rather than
@@ -428,13 +394,8 @@ watch(
 
 onUnmounted(() => {
   showPhotoUploader.value = false;
-  showMap.value?.hide();
   setSelectedPhotos([]);
 });
-
-const toggle = (event: MouseEvent) => {
-  showMap.value.toggle(event);
-};
 
 /**
  * Open the album dialog on the album being viewed.

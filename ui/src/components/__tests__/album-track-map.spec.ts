@@ -18,6 +18,8 @@ const mapCalls = vi.hoisted(() => ({
   /** When true, `loadImage` holds its callback until `resolveImage` is called. */
   deferImage: false,
   resolveImage: null as (() => void) | null,
+  /** Coordinates each `new mapboxgl.Marker()` was placed at. */
+  markers: [] as Array<[number, number]>,
   removeSource: [] as string[],
   fitBounds: [] as unknown[],
   setData: [] as unknown[],
@@ -111,9 +113,15 @@ vi.mock('mapbox-gl', () => ({
         }),
       };
     }),
-    // `function`, not an arrow: the component calls `new mapboxgl.Marker()`.
+    // `function`, not an arrow: the component calls `new mapboxgl.Marker()`. Records where
+    // each one was placed, so the album-location pin can be asserted.
     Marker: vi.fn(function () {
-      return { setLngLat: () => ({ addTo: vi.fn() }) };
+      return {
+        setLngLat: (coordinates: [number, number]) => {
+          mapCalls.markers.push(coordinates);
+          return { addTo: vi.fn() };
+        },
+      };
     }),
     Popup: vi.fn(function () {
       return {
@@ -156,6 +164,8 @@ const storeState = vi.hoisted(() => ({
   isFetchingTracks: null as unknown as Ref<boolean>,
   isAdmin: null as unknown as Ref<boolean>,
   photosInAlbum: null as unknown as Ref<unknown[]>,
+  /** Mutable so a test can give the album a `place`, which keeps the map alive alone. */
+  currentAlbum: null as unknown as Ref<Record<string, unknown>>,
   toggleTrack: vi.fn(),
 }));
 
@@ -175,6 +185,10 @@ vi.mock('@/stores', async () => {
   storeState.isFetchingTracks = createRef(false);
   storeState.isAdmin = createRef(false);
   storeState.photosInAlbum = createRef<unknown[]>([]);
+  storeState.currentAlbum = createRef<Record<string, unknown>>({
+    id: 'demo-album',
+    year: '2026',
+  });
 
   return {
     useGpsTrackStore: () => ({
@@ -184,9 +198,7 @@ vi.mock('@/stores', async () => {
       isFetchingTracks: storeState.isFetchingTracks,
       toggleTrack: storeState.toggleTrack,
     }),
-    useAlbumStore: () => ({
-      currentAlbum: createRef({ id: 'demo-album', year: '2026' }),
-    }),
+    useAlbumStore: () => ({ currentAlbum: storeState.currentAlbum }),
     usePhotoStore: () => ({ photosInAlbum: storeState.photosInAlbum }),
     useUserConfigStore: () => ({ isAdmin: storeState.isAdmin }),
   };
@@ -233,6 +245,8 @@ const resetMapState = () => {
   mapCalls.handlers.clear();
   mapCalls.deferImage = false;
   mapCalls.resolveImage = null;
+  mapCalls.markers = [];
+  storeState.currentAlbum.value = { id: 'demo-album', year: '2026' };
   routerCalls.replace.mockReset();
   storeState.photosInAlbum.value = [];
   storeState.legend.value = [];
@@ -967,5 +981,105 @@ describe('AlbumTrackMap photo pins respect the toggle as they are created', () =
     await nextTick();
 
     expect(mapCalls.addSource.some((entry) => entry.id === 'photo-pins')).toBe(true);
+  });
+});
+
+/**
+ * An album whose only mappable thing is its own location.
+ *
+ * The toolbar popover that used to show this was removed, so the map panel is now the only
+ * place the album's location appears. That means the panel has to render for a place
+ * alone — and say why it is otherwise bare, rather than replacing the map with a message
+ * and hiding the very pin the viewer came for.
+ */
+describe('AlbumTrackMap with only an album location', () => {
+  const PLACE = {
+    displayName: 'Ubud',
+    formattedAddress: 'Ubud, Bali, Indonesia',
+    location: { latitude: -8.5069, longitude: 115.2625 },
+  };
+
+  const withPlace = () => {
+    storeState.currentAlbum.value = { id: 'demo-album', year: '2026', place: PLACE };
+  };
+
+  afterEach(() => {
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount());
+  });
+
+  beforeEach(() => {
+    resetMapState();
+  });
+
+  it('renders the map for an album with a location but no tracks and no pins', async () => {
+    withPlace();
+
+    const wrapper = await mountMap();
+
+    expect(wrapper.find('[data-test-id="track-map"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test-id="track-map-empty"]').exists()).toBe(false);
+  });
+
+  it('drops the album location marker on that map', async () => {
+    withPlace();
+
+    await mountMap();
+
+    expect(mapCalls.markers).toContainEqual([115.2625, -8.5069]);
+  });
+
+  // Above the map, not instead of it - replacing the map would hide the pin.
+  it('explains the bare map above it rather than in place of it', async () => {
+    withPlace();
+
+    const wrapper = await mountMap();
+    const notice = wrapper.find('[data-test-id="track-map-place-only"]');
+
+    expect(notice.exists()).toBe(true);
+    expect(notice.text()).toContain("the pin is the album's own location");
+    expect(wrapper.find('[data-test-id="track-map"]').exists()).toBe(true);
+  });
+
+  it('drops the notice once the album has a track to draw', async () => {
+    withPlace();
+    storeState.hasTracks.value = true;
+    storeState.renderableTracks.value = [renderable('day-1')];
+
+    const wrapper = await mountMap();
+
+    expect(wrapper.find('[data-test-id="track-map-place-only"]').exists()).toBe(false);
+  });
+
+  it('drops the notice once a photo has coordinates', async () => {
+    withPlace();
+    storeState.photosInAlbum.value = [
+      {
+        url: 'https://cdn.example.com/demo-album/one.jpg',
+        key: 'demo-album/one.jpg',
+        latitude: -8.5,
+        longitude: 115.26,
+        hasGps: true,
+      },
+    ];
+
+    const wrapper = await mountMap();
+
+    expect(wrapper.find('[data-test-id="track-map-place-only"]').exists()).toBe(false);
+  });
+
+  // No track, no located photo, and no album location: there is genuinely nothing to put
+  // on a map, so the panel stays empty rather than showing a world view of nothing.
+  it('shows the empty state and no map when the album has no location either', async () => {
+    const wrapper = await mountMap();
+
+    expect(wrapper.find('[data-test-id="track-map-empty"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test-id="track-map"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test-id="track-map-place-only"]').exists()).toBe(false);
+  });
+
+  it('tells a visitor nothing about controls they cannot see', async () => {
+    const wrapper = await mountMap();
+
+    expect(wrapper.find('[data-test-id="track-map-empty"]').text()).not.toMatch(/Edit album/i);
   });
 });

@@ -398,8 +398,16 @@ describe('parseGpxToFeature', () => {
       const elapsed = performance.now() - start;
 
       expect(feature.properties.pointCount).toBeLessThanOrEqual(MAX_TRACK_POINTS);
-      expect(elapsed).toBeLessThan(5_000);
-    });
+      // A generous ceiling on purpose. What this guards is the *shape* of the algorithm:
+      // a quadratic simplification of 8,000 points takes minutes, not seconds, so any
+      // budget in this range catches it equally well. A tight one instead measures how
+      // busy the machine is — at 5s it failed on a CI runner and then locally at 6-7s,
+      // while passing in ~1s when this file runs on its own. Vitest runs files in
+      // parallel, so adding test files elsewhere in the suite is enough to tip it over.
+      expect(elapsed).toBeLessThan(30_000);
+      // Vitest's own `testTimeout` defaults to 5s and would abort the run before the
+      // assertion above could ever be reached, so it has to be raised in step with it.
+    }, 30_000);
 
     /**
      * The thinning guard, which nothing else reaches.

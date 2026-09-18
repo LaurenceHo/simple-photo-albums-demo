@@ -79,7 +79,11 @@ export const mockAlbums: Album[] = [
     tags: [],
   },
 ];
-export const getAlbumsByYear = http.get('/api/albums/**', async () => {
+// `:year`, not `/**`. The wildcard also matched `/api/albums/<id>/gps-tracks`, and since
+// this handler is registered before the GPS ones, every track request was answered with
+// the album list. The map then read four albums as a four-track manifest, giving legend
+// rows and layer ids built from `undefined`. The real route is a single segment.
+export const getAlbumsByYear = http.get('/api/albums/:year', async () => {
   await delay();
 
   // return new HttpResponse(null, {
