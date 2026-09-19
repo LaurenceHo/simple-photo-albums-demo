@@ -52,10 +52,10 @@
       </div>
       <div class="album-list-paginator grow pt-2 sm:flex-none sm:pt-0">
         <Paginator
+          v-model:first="firstIndex"
           v-model:rows="itemsPerPage"
           :rows-per-page-options="[10, 20, 30]"
           :total-records="totalItems"
-          @page="onPageChange"
         />
       </div>
     </div>
@@ -102,7 +102,7 @@ import {
 } from '@/stores';
 import { IconSortAscendingLetters, IconSortDescendingLetters } from '@tabler/icons-vue';
 import { storeToRefs } from 'pinia';
-import { Button, type PageState, Paginator, ScrollTop, Skeleton, ToggleSwitch } from 'primevue';
+import { Button, Paginator, ScrollTop, Skeleton, ToggleSwitch } from 'primevue';
 import { useToast } from 'primevue/usetoast';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -138,8 +138,9 @@ onMounted(() => {
 // UI state
 const isFeaturedCollapsed = ref(false);
 
-// Pagination state
-const pageNumber = ref(1);
+// Pagination state. `firstIndex` is the zero-relative index of the first album on the
+// current page, the same shape PrimeVue's Paginator uses, so the two stay in step.
+const firstIndex = ref(0);
 const itemsPerPage = ref(20);
 
 const sortOrder = computed(() => filterState.value.sortOrder);
@@ -149,20 +150,11 @@ const unlistedOnly = computed({
 });
 
 const paramsYear = computed(() => route.params['year'] as string);
-const totalPages = computed(() => Math.ceil(totalItems.value / itemsPerPage.value));
-const firstIndex = computed(() => (pageNumber.value - 1) * itemsPerPage.value);
-const lastIndex = computed(() =>
-  totalPages.value > pageNumber.value ? firstIndex.value + itemsPerPage.value : totalItems.value,
-);
 const totalItems = computed(() => filteredAlbums.value.length);
 const chunkAlbumList = computed(() =>
-  filteredAlbums.value.slice(firstIndex.value, lastIndex.value),
+  filteredAlbums.value.slice(firstIndex.value, firstIndex.value + itemsPerPage.value),
 );
 
-const onPageChange = (event: PageState) => {
-  pageNumber.value = event.page + 1;
-  itemsPerPage.value = event.rows;
-};
 const toggleSortOrder = () => albumStore.setSortOrder(sortOrder.value === 'desc' ? 'asc' : 'desc');
 const setSelectedTags = (tags: string[]) => albumStore.setSelectedTags(tags);
 const setSelectedYear = (year: string) => albumStore.setSelectedYear(year);
@@ -181,6 +173,22 @@ watch(
   },
   { immediate: true },
 );
+
+// Changing the year or a filter puts the user back on the first page. Without this the
+// Paginator (which is unmounted while albums are fetching, so it restarts at page 1)
+// and `firstIndex` would disagree, showing a later page under a "page 1" paginator.
+watch([selectedYear, filterState], () => (firstIndex.value = 0), { deep: true });
+
+// The list can also shrink past the current page without the year or a filter changing:
+// deleting an album refetches the same year. `slice` clamps its end but not its start,
+// so a stale `firstIndex` would render "No results." with albums present. The Paginator
+// guards this itself, but only while mounted, and the refetch unmounts it.
+watch(totalItems, (total) => {
+  if (firstIndex.value < total) return;
+  // Land on the last page, matching what the Paginator does when it stays mounted.
+  firstIndex.value =
+    total === 0 ? 0 : (Math.ceil(total / itemsPerPage.value) - 1) * itemsPerPage.value;
+});
 
 watch(paramsYear, (newValue) => {
   // Only update selectedYear if it differs from the current store value

@@ -1,5 +1,5 @@
 import { setupQueryMocks } from '@/mocks/setup-query-mock';
-import type { UserPermission } from '@/schema';
+import type { Album, UserPermission } from '@/schema';
 import { useAlbumStore, useDialogStore, useUserConfigStore } from '@/stores';
 import AlbumList from '@/views/AlbumList.vue';
 import { createTestingPinia } from '@pinia/testing';
@@ -38,6 +38,33 @@ vi.mock('@/utils/helper', async () => {
     getDataFromLocalStorage: vi.fn(),
   };
 });
+
+/**
+ * Builds `count` albums named `Album 01`..`Album NN`, already in ascending name order.
+ * They all carry `tag1` so that filtering by it keeps the list long enough to page.
+ */
+const buildAlbums = (count: number): Album[] =>
+  Array.from({ length: count }, (_, index) => ({
+    id: String(index + 1),
+    albumName: `Album ${String(index + 1).padStart(2, '0')}`,
+    year: '2023',
+    albumCover: '',
+    description: '',
+    tags: ['tag1'],
+    isUnlisted: false,
+  }));
+
+/**
+ * The `first` index the view has bound to the Paginator. `Paginator: true` stubs the
+ * component without its inherited props, so the binding arrives as a plain attribute.
+ */
+const paginatorFirst = (paginator: VueWrapper): number => Number(paginator.attributes('first'));
+
+/** Name of the first album the paginated list currently renders. */
+const firstRenderedAlbumName = (wrapper: VueWrapper): string | undefined => {
+  const albums = wrapper.findAllComponents({ name: 'Album' });
+  return albums.length > 0 ? (albums[0]!.props('albumItem') as Album).albumName : undefined;
+};
 
 describe('AlbumList.vue', () => {
   const createWrapper = (storeOverrides = {}): VueWrapper => {
@@ -96,6 +123,27 @@ describe('AlbumList.vue', () => {
     });
   };
 
+  /**
+   * Mounts the list holding `count` albums and, unless `first` is 0, moves the paginator
+   * there. Every pagination test needs this same setup.
+   */
+  const mountPagedList = async ({ count = 45, first = 40 } = {}) => {
+    const wrapper = createWrapper();
+    const albumStore = useAlbumStore();
+    albumStore.filteredAlbums = buildAlbums(count);
+    await nextTick();
+
+    // Looked up on each use rather than held: a refetch unmounts the Paginator and
+    // mounts a fresh one, which is the very thing some of these tests exercise.
+    const paginator = () => wrapper.findComponent({ name: 'Paginator' });
+    if (first > 0) {
+      await paginator().vm.$emit('update:first', first);
+      await nextTick();
+    }
+
+    return { wrapper, albumStore, paginator };
+  };
+
   beforeEach(() => {
     setupQueryMocks();
     vi.clearAllMocks();
@@ -119,6 +167,20 @@ describe('AlbumList.vue', () => {
     expect(albumStore.filterState.sortOrder).toBe('asc');
     await sortButton.trigger('click');
     expect(albumStore.filterState.sortOrder).toBe('desc');
+  });
+
+  it('returns to the first page when the sort order is toggled', async () => {
+    // The query has to hold the same 45 albums: toggling sort re-runs the store's
+    // `applyFilters`, and a shorter result would clamp the page rather than reset it,
+    // so this would pass without the reset watcher.
+    setupQueryMocks({ useQuery: { data: ref(buildAlbums(45)) } });
+    const { wrapper, albumStore, paginator } = await mountPagedList();
+
+    await wrapper.findComponent({ name: 'Button' }).trigger('click');
+    await nextTick();
+
+    expect(albumStore.filteredAlbums).toHaveLength(45);
+    expect(paginatorFirst(paginator())).toBe(0);
   });
 
   it('updates selected year when a year is selected', async () => {
@@ -150,12 +212,75 @@ describe('AlbumList.vue', () => {
     expect(albumStore.filterState.selectedTags).toEqual(['tag1', 'tag2']);
   });
 
-  it('updates pagination when page changes', async () => {
-    const wrapper = createWrapper();
-    const paginator = wrapper.findComponent({ name: 'Paginator' });
-    await paginator.vm.$emit('page', { page: 2, rows: 20 });
-    expect((wrapper.vm as unknown as { pageNumber: number }).pageNumber).toBe(3);
-    expect((wrapper.vm as unknown as { itemsPerPage: number }).itemsPerPage).toBe(20);
+  it('pages through the album list when the paginator moves', async () => {
+    const { wrapper, paginator } = await mountPagedList({ first: 0 });
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 01');
+
+    // `v-model:first` is the single source of truth, so the paginator drives the slice.
+    await paginator().vm.$emit('update:first', 40);
+    await nextTick();
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 41');
+    expect(wrapper.findAllComponents({ name: 'Album' })).toHaveLength(5);
+  });
+
+  it('returns to the first page when the selected year changes', async () => {
+    const { wrapper, albumStore, paginator } = await mountPagedList();
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 41');
+
+    albumStore.setSelectedYear('2022');
+    await nextTick();
+
+    expect(paginatorFirst(paginator())).toBe(0);
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 01');
+  });
+
+  it('keeps the paginator and the list in step across a refetch', async () => {
+    // The reported bug: fetching unmounts the Paginator, so it remounts at page 1 while
+    // the view (cached by <keep-alive>) still held a later page.
+    const isFetching = ref(false);
+    setupQueryMocks({ useQuery: { isFetching } });
+    const { wrapper, albumStore, paginator } = await mountPagedList();
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 41');
+
+    isFetching.value = true;
+    await nextTick();
+    expect(paginator().exists()).toBe(false);
+
+    albumStore.setSelectedYear('2022');
+    isFetching.value = false;
+    await nextTick();
+
+    expect(paginatorFirst(paginator())).toBe(0);
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 01');
+  });
+
+  it('falls back to the last page when the album list shrinks past it', async () => {
+    // Deleting an album refetches the same year, so neither the year nor a filter
+    // changes. Without a clamp `firstIndex` runs past the end and the list renders empty.
+    const { wrapper, albumStore, paginator } = await mountPagedList({ count: 41 });
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 41');
+
+    albumStore.filteredAlbums = buildAlbums(40);
+    await nextTick();
+
+    expect(paginatorFirst(paginator())).toBe(20);
+    expect(firstRenderedAlbumName(wrapper)).toBe('Album 21');
+    expect(wrapper.text()).not.toContain('No results.');
+  });
+
+  it('returns to the first page when the filters change', async () => {
+    // Every album carries `tag1`, so the filter below keeps all 45 and the page can only
+    // move because of the reset watcher, not because the list shrank past it.
+    setupQueryMocks({ useQuery: { data: ref(buildAlbums(45)) } });
+    const { albumStore, paginator } = await mountPagedList();
+
+    // Filtering never refetches, so the paginator is not remounted. Only the watcher
+    // brings it back to the first page.
+    albumStore.setSelectedTags(['tag1']);
+    await nextTick();
+
+    expect(albumStore.filteredAlbums).toHaveLength(45);
+    expect(paginatorFirst(paginator())).toBe(0);
   });
 
   it('displays featured albums when available', async () => {
