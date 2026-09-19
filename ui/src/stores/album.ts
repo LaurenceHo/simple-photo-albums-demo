@@ -129,22 +129,12 @@ export const useAlbumStore = defineStore('album', () => {
     filteredAlbums.value = sortByKey(result, 'albumName', filterState.value.sortOrder);
   };
 
-  watch(
-    () => data?.value,
-    (newAlbums) => {
-      filteredAlbums.value = sortByKey(newAlbums || [], 'albumName', filterState.value.sortOrder);
-    },
-  );
+  // A refetch rebuilds the list from scratch, so it has to go back through
+  // `applyFilters` rather than only re-sorting. Re-sorting alone dropped whatever the
+  // user had filtered on: refetching after an edit silently restored the hidden albums.
+  watch(() => data?.value, applyFilters);
 
-  watch(
-    () => filterState.value,
-    () => {
-      if (data.value?.length) {
-        applyFilters();
-      }
-    },
-    { deep: true },
-  );
+  watch(() => filterState.value, applyFilters, { deep: true });
 
   const setAlbumToBeUpdated = (album: Album) => (albumToBeUpdate.value = album);
   const setCurrentAlbum = (album: Album) => (currentAlbum.value = album);
