@@ -71,7 +71,7 @@ jobs:
           # (no Google login, no place search, no flight lookup). Unlike JWT_SECRET, a
           # placeholder grants no authority - it only makes the upstream call fail.
           VITE_GOOGLE_CLIENT_ID: 'unused-in-demo'
-          MAPBOXAPI_KEY: 'unused-in-demo'
+          GOOGLE_PLACES_API_KEY: 'unused-in-demo'
           RAPIDAPI_KEY: 'unused-in-demo'
         run: |
           cd "$GITHUB_WORKSPACE/server"
@@ -89,7 +89,7 @@ jobs:
           put_secret R2_ACCESS_KEY "$R2_ACCESS_KEY"
           put_secret R2_SECRET_KEY "$R2_SECRET_KEY"
           put_secret VITE_GOOGLE_CLIENT_ID "$VITE_GOOGLE_CLIENT_ID"
-          put_secret MAPBOXAPI_KEY "$MAPBOXAPI_KEY"
+          put_secret GOOGLE_PLACES_API_KEY "$GOOGLE_PLACES_API_KEY"
           put_secret JWT_SECRET "$JWT_SECRET"
           put_secret RAPIDAPI_KEY "$RAPIDAPI_KEY"
 

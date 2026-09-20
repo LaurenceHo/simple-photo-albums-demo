@@ -61,19 +61,18 @@ jobs:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-          MAPBOXAPI_KEY: ${{ secrets.MAPBOXAPI_KEY }}
-          SEARCH_PROXIMITY: ${{ vars.SEARCH_PROXIMITY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: |
           cd "$GITHUB_WORKSPACE/server"
           # An empty value here deploys a Worker that cannot sign sessions, reach R2, or
-          # search places, which fails at request time rather than at deploy time. MAPBOXAPI_KEY
-          # is included because it is a rename, not a pre-existing secret: on the environment
-          # where it is first introduced, nothing guarantees the new name was created before
+          # search places, which fails at request time rather than at deploy time. GOOGLE_PLACES_API_KEY
+          # is included because it was deleted by #131 and re-introduced here, so it is not a
+          # pre-existing secret on any environment: nothing guarantees the name was recreated before
           # this deploy runs, and an unset value here silently uploads an empty string that
           # 500s on every place search with no deploy-time signal.
-          for required in JWT_SECRET R2_ACCESS_KEY R2_SECRET_KEY MAPBOXAPI_KEY; do
+          for required in JWT_SECRET R2_ACCESS_KEY R2_SECRET_KEY GOOGLE_PLACES_API_KEY; do
             if [ -z "${!required}" ]; then
               echo "::error::$required is not set on the 'prod' environment. Refusing to deploy." >&2
               exit 1
@@ -88,15 +87,7 @@ jobs:
           put_secret R2_ACCESS_KEY "$R2_ACCESS_KEY"
           put_secret R2_SECRET_KEY "$R2_SECRET_KEY"
           put_secret VITE_GOOGLE_CLIENT_ID "$VITE_GOOGLE_CLIENT_ID"
-          put_secret MAPBOXAPI_KEY "$MAPBOXAPI_KEY"
-          # SEARCH_PROXIMITY is optional configuration, not a credential, so an unset
-          # value must never be able to fail the deploy. Skip the upload entirely rather
-          # than storing an empty secret. Note this means clearing the repo variable does
-          # not clear an already-uploaded value - remove that with
-          # `wrangler secret delete SEARCH_PROXIMITY` if you ever need to unset it.
-          if [ -n "$SEARCH_PROXIMITY" ]; then
-            put_secret SEARCH_PROXIMITY "$SEARCH_PROXIMITY"
-          fi
+          put_secret GOOGLE_PLACES_API_KEY "$GOOGLE_PLACES_API_KEY"
           put_secret JWT_SECRET "$JWT_SECRET"
           put_secret RAPIDAPI_KEY "$RAPIDAPI_KEY"
 

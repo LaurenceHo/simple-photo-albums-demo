@@ -1,41 +1,46 @@
 import { Context } from 'hono';
 import { HonoEnv } from '../env';
-import type { SearchBoxFeature } from '../services/location-service';
+import type { PlacesSearchResult } from '../services/location-service';
 import { getLocation } from '../services/location-service';
 import { Place } from '../types';
 import { BaseController } from './base-controller';
 
 /**
  * A nameless suggestion is useless in a dropdown, and `PlaceSchema.displayName` is
- * `.min(1)`. Dropping the feature here stops one bad result from failing validation later
+ * `.min(1)`. Dropping the result here stops one bad entry from failing validation later
  * - an opaque 400 when the album is saved - without rejecting the whole response.
  */
-const hasUsableName = (feature: SearchBoxFeature): boolean =>
-  feature.properties.name.trim().length > 0;
+const hasUsableName = (place: PlacesSearchResult): boolean =>
+  place.displayName.text.trim().length > 0;
 
 /**
- * Map one Mapbox Search Box feature onto the internal `Place` DTO.
+ * Map one Places result onto the internal `Place` DTO.
  *
- * Only sound for features that pass `hasUsableName`: `name` is the final fallback for
- * `formattedAddress`, which `PlaceSchema` declares `.min(1)`.
+ * Only sound for results that pass `hasUsableName`: `displayName.text` is the fallback
+ * for `formattedAddress`, which `PlaceSchema` declares `.min(1)`.
  */
-const toPlace = (feature: SearchBoxFeature): Place => {
-  const { properties } = feature;
+const toPlace = (place: PlacesSearchResult): Place => {
+  const { displayName, formattedAddress, location, addressComponents } = place;
+  // `component.types?.` - not `component.types.` - because `types` is optional in the
+  // schema. Google really does send components without it (see the note on
+  // `PlacesAddressComponentSchema`), and an unguarded `.includes` would throw a TypeError
+  // here, turning a parseable response into a 500 at the mapping step instead.
+  const countryComponent = addressComponents?.find((component) =>
+    component.types?.includes('country'),
+  );
   return {
-    displayName: properties.name,
-    // `||`, not `??`: Mapbox sends these as empty strings rather than omitting them, and
-    // an empty `formattedAddress` fails `PlaceSchema`'s `.min(1)`.
-    formattedAddress: properties.full_address || properties.place_formatted || properties.name,
-    // `properties.coordinates`, NOT `geometry.coordinates`: the latter is a
-    // [longitude, latitude] array, and reading it as [lat, lng] silently puts every pin
-    // in the wrong hemisphere.
-    location: {
-      latitude: properties.coordinates.latitude,
-      longitude: properties.coordinates.longitude,
-    },
+    displayName: displayName.text,
+    // `||`, not `??`: Google may send this as an empty string *or* omit it, and both are
+    // equally unusable against `PlaceSchema.formattedAddress`, which is `.min(1)`.
+    formattedAddress: formattedAddress || displayName.text,
+    // Google returns `{ latitude, longitude }` as a named object, so there is no
+    // [lng, lat] array to transpose - unlike the Mapbox shape this replaced.
+    location,
     // `extractCountry` in ui/src/stores/travel-records.ts counts distinct countries with a
-    // `Set<string>`, so a casing flip would count 'nz' and 'NZ' as two.
-    country: properties.context?.country?.country_code?.toUpperCase(),
+    // `Set<string>`, so a casing flip would count 'tw' and 'TW' as two. Google's country
+    // `shortText` is already an uppercase ISO code; this holds that invariant at the
+    // boundary rather than trusting it.
+    country: countryComponent?.shortText?.toUpperCase(),
   };
 };
 
@@ -47,17 +52,16 @@ export default class LocationController extends BaseController {
       return this.clientError(c, 'textQuery parameter is required');
     }
     try {
-      const response = await getLocation(c.env.MAPBOXAPI_KEY, textQuery, c.env.SEARCH_PROXIMITY);
-      const places = (response.features ?? []).filter(hasUsableName).map(toPlace);
+      const response = await getLocation(c.env.GOOGLE_PLACES_API_KEY, textQuery);
+      const places = (response.places ?? []).filter(hasUsableName).map(toPlace);
       return this.ok<Place[]>(c, 'ok', places);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      // `location-service` never constructs a message containing the request URL, but a
-      // runtime `fetch` error is not under our control and could embed it - the Mapbox
-      // access token is a query parameter, so an unredacted log would leak it straight into
-      // Worker logs, which `wrangler.ci.toml` retains at 100% (`head_sampling_rate = 1`).
-      const redactedMessage = message.replace(/access_token=[^&\s]*/gi, 'access_token=REDACTED');
-      console.error(`Location API error: ${redactedMessage}`);
+      // No URL redaction here, unlike the Mapbox implementation this replaced: the Places
+      // key is sent as the `X-Goog-Api-Key` header and the request URL has no query
+      // string, so a `fetch` error cannot embed the credential. That holds only while the
+      // key stays in the header - see the note in `location-service.ts`.
+      console.error(`Location API error: ${message}`);
       return this.fail(c, 'Failed to fetch location data');
     }
   };

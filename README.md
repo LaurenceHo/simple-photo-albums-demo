@@ -78,46 +78,34 @@ If you change R2 bucket name, don't forget to update the configuration in ImageK
 This project uses Mapbox to display the [map](https://simple-photo-albums.pages.dev/map/albums). You can get your own Mapbox API key [here](https://account.mapbox.com/auth/signup/). Once you have your own Mapbox API key, replace this property `VITE_MAPBOX_API_KEY` with your real information in `.env.example` and modify file name to `.env`.
 
 Use a **public** token (`pk.*`) and add a URL restriction for your own domain in the Mapbox
-dashboard — see the note below on why. A secret token (`sk.*`) must never be used here.
+dashboard. Vite inlines this token into the client bundle, so anyone who loads the site can
+read it — the URL restriction is what stops them spending your quota. A secret token
+(`sk.*`) must never be used here.
 
-#### Two Mapbox tokens are required
+#### Map rendering and place search use different vendors
 
 | Variable | Used by | Restriction |
 | --- | --- | --- |
 | `VITE_MAPBOX_API_KEY` | The browser, for map tiles | Public `pk.*`, **URL-restricted** to your own domain |
-| `MAPBOXAPI_KEY` | The Worker, for place search | Public `pk.*`, **no URL restriction** |
+| `GOOGLE_PLACES_API_KEY` | The Worker, for place search | Google Cloud key, **restricted to the Places API** |
 
-They must be **separate tokens**. A URL restriction is enforced against the `Referer`
-header, and a `fetch` from a Cloudflare Worker sends none — so the URL-restricted token
-is rejected server-side. Keeping them separate also means a leak of the public one does
-not force rotation of the server one.
+Mapbox draws the maps; place search runs against the Google Places API. Search was briefly
+migrated to Mapbox Search Box to consolidate on a single vendor, and moved back because
+Mapbox has no record of many local landmarks outside its core markets - see the
+"Superseded" note in `docs/specs/2026-08-08-mapbox-search-migration-design.md`.
 
-`MAPBOXAPI_KEY` has no `VITE_` prefix on purpose: it is a Worker secret and must never
-reach the client bundle.
+`GOOGLE_PLACES_API_KEY` has no `VITE_` prefix on purpose: it is a Worker secret and must
+never reach the client bundle. Create it in the Google Cloud console, enable **Places API
+(New)**, and add an *API restriction* so the key can only call that API.
 
-#### `SEARCH_PROXIMITY` (optional)
+Do **not** put an HTTP-referrer restriction on this key. Referrer restrictions are enforced
+against the `Referer` header, and a `fetch` from a Cloudflare Worker sends none - the key
+would be rejected server-side. This is the same constraint that forced a second, unrestricted
+token when search ran on Mapbox.
 
-Without a location hint, Mapbox ranks *partial* search queries by the caller's IP — which in
-production is whichever Cloudflare datacentre served the request, so results vary by datacentre
-and won't match what you see locally. Set `SEARCH_PROXIMITY` to pin it:
-
-```properties
-SEARCH_PROXIMITY=174.7633,-36.8485
-```
-
-**Longitude first** — the reverse of what Google Maps gives you when you right-click. The
-literal `ip` is also accepted and is equivalent to leaving it unset. An invalid value is
-logged and ignored rather than sent.
-
-Only partial queries are affected; fully-typed searches rank the same either way, so this
-does not bias searches for other countries.
-
-In production it comes from `vars.SEARCH_PROXIMITY` — a GitHub Actions **variable**, not a
-secret. Set it on the `prod` environment (Settings → Environments → `prod` → Variables).
-
-⚠️ The deploy skips the upload when the value is empty, so **clearing the variable does not
-unset it on the Worker** — an already-uploaded value stays. To actually remove it, run
-`wrangler secret delete SEARCH_PROXIMITY` against the Worker.
+Text Search bills at the **Pro** SKU. The `X-Goog-FieldMask` in `location-service.ts` is
+deliberately limited to four Pro-tier fields - adding an Enterprise-tier field there
+(`rating`, `websiteUri`, opening hours) re-prices every search, not just the ones using it.
 
 ### `VITE_*` variables are public
 
@@ -133,7 +121,7 @@ This is fine for the ones that are public by design, but it means:
   identifiers, no action needed.
 
 Anything that must stay confidential belongs in the Worker as a `wrangler secret` and must **not**
-carry a `VITE_` prefix: `JWT_SECRET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `MAPBOXAPI_KEY`,
+carry a `VITE_` prefix: `JWT_SECRET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `GOOGLE_PLACES_API_KEY`,
 `RAPIDAPI_KEY`. (`VITE_GOOGLE_CLIENT_ID` is also uploaded as a Worker secret because the Worker
 needs it as the token `audience` — the name is misleading, but the value is not confidential.)
 

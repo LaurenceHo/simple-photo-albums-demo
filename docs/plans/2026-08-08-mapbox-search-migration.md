@@ -1,5 +1,33 @@
 # Mapbox Search Box migration — Implementation Plan
 
+> # ⛔ SUPERSEDED — DO NOT EXECUTE THIS PLAN
+>
+> **This plan was completed in #131 and then reversed on 2026-09-20.** Place search runs on
+> the Google Places API again; only map *rendering* is still Mapbox. See the Superseded note
+> at the top of
+> [`docs/specs/2026-08-08-mapbox-search-migration-design.md`](../specs/2026-08-08-mapbox-search-migration-design.md)
+> for why.
+>
+> **Executing any part of this file will break production.** Specifically, its
+> "Post-merge rollout (human)" section instructs the reader to destroy the credential the
+> app now depends on:
+>
+> - step 4 — revoke `GOOGLE_PLACES_API_KEY` in the Google Cloud console and delete the
+>   GitHub secret
+> - step 5 — `wrangler versions secret delete GOOGLE_PLACES_API_KEY` on both Workers
+> - step 6 — remove `GOOGLE_PLACES_API_KEY` from `server/.dev.vars`
+> - step 7 — regenerate Worker types on the strength of step 6
+>
+> Doing any of those now 500s every admin place search, and the required-secrets guard in
+> `api-build-deploy.yaml` will then refuse to deploy at all until a new key is minted.
+>
+> The **"Goal"** and **"Architecture"** lines immediately below are likewise inverted: the
+> binding `MAPBOXAPI_KEY` was replaced *by* `GOOGLE_PLACES_API_KEY`, not the other way
+> round. `MAPBOXAPI_KEY` and `SEARCH_PROXIMITY` no longer exist anywhere under `server/src`.
+>
+> The file is kept unedited below this banner as the historical record of how #131 was
+> carried out. Read it as history, never as instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Google Places `places:searchText` with Mapbox Search Box `/forward` for admin place search, so the project depends on one geo vendor.

@@ -1,8 +1,135 @@
 # Migrate place search from Google Places to Mapbox Search Box
 
 **Date:** 2026-08-08
-**Status:** Approved design, ready for implementation planning
+**Status:** **Superseded on 2026-09-20** — implemented as designed, then reversed. See below.
 **Scope:** `server/` + config/docs — **no `ui/src` component changes**, no D1 migration
+
+---
+
+> ### Superseded: place search moved back to Google Places (2026-09-20)
+>
+> **Why.** Mapbox Search Box has no record of many local landmarks outside its core
+> markets. The trigger was 新竹飛鳳山, a hill in Hsinchu County, Taiwan. Live probing of
+> `/search/searchbox/v1/forward` returned a Korean address first, then `Fengshan`
+> localities in the wrong counties — never the peak.
+>
+> This is an **index-coverage gap, not a tuning problem**, and the probes rule out the
+> obvious fixes:
+>
+> | Variant | Result |
+> | --- | --- |
+> | `飛鳳山` with `language=en` vs `language=zh-Hant` | byte-identical |
+> | `飛鳳山` with `country=tw` | byte-identical again |
+> | `飛鳳山` with `proximity` set near Hsinchu | reshuffles the wrong answers only |
+> | `飛鳳山登山步道` | loose CJK character matching — returns streets in Japan |
+> | `Feifeng Mountain` | "Mountain, Ontario, Canada" |
+>
+> For comparison, OpenStreetMap holds it exactly: `飛鳳山 | 芎林鄉, 新竹縣 | natural/peak`,
+> along with its hiking trail. An OSM-backed vendor was evaluated and rejected: the public
+> Nominatim instance forbids autocomplete use outright, and no candidate could be shown to
+> return this peak from the endpoint a typeahead would actually call.
+>
+> **The single-vendor goal in §1 was traded away deliberately.** It bought operational
+> tidiness — one account, one bill — at the cost of a working feature. The key count is
+> unchanged at two (`VITE_MAPBOX_API_KEY` for tiles, plus a server-side search key), so the
+> real cost of the reversal is one extra vendor account, not one extra secret.
+>
+> **Maps stay on Mapbox.** Only place search moved. Switching tiles to the search vendor was
+> considered and rejected: map loads are already free at the project's volume, so the port
+> would buy nothing, and it would trade the 3D `mapbox/standard` style for a flat one.
+>
+> #### Live verification, run through `getLocation()` against the real endpoint
+>
+> | Query | Top result | `country` |
+> | --- | --- | --- |
+> | `新竹飛鳳山` | 飛鳳山 — `307, Taiwan, 新竹縣芎林鄉飛鳳山` | TW |
+> | `飛鳳山` | 飛鳳山, then `Feifengshan Trail`, then 飛鳳山牌樓 | TW |
+> | `飛鳳` (partial) | **no results** — see the trade-off below | — |
+> | `Auckland Airport` | Auckland Airport — `Ray Emery Drive, Māngere, Auckland 2022` | NZ |
+> | `Sydney Opera House` | Sydney Opera House — `Bennelong Point, Sydney NSW 2000` | AU |
+>
+> Every result populated `country`, so `extractCountry` in
+> [`ui/src/stores/travel-records.ts`](../../ui/src/stores/travel-records.ts) always takes its
+> first branch and never reaches the comma-splitting `formattedAddress` fallback — the same
+> property §5.7 checked for Mapbox.
+>
+> `languageCode: 'en'` is **kept**, and the probe shows why it is not the problem it looks
+> like: Google returns the local-script name where it holds no English one (`飛鳳山`, with
+> `displayName.languageCode` of `zh-TW`) and an English one where it does
+> (`Feifengshan Trail`). It selects the response language, not the match.
+>
+> **Known trade-off — `searchText` is not an autocomplete.** A partial query returns nothing
+> rather than a ranked guess: `飛鳳` yields no results, where Mapbox's `auto_complete=true`
+> returned *something* (for this query, streets in Japan). The dropdown therefore stays empty
+> until enough of the name is typed. This is the pre-#131 behaviour restored, not a new
+> regression, and is accepted. Google's `places:autocomplete` is the endpoint built for
+> typeahead and bills at a cheaper SKU, but it is a two-call flow (autocomplete → details) —
+> the same session plumbing §5.2 rejected. Revisit only if the empty-until-complete dropdown
+> proves annoying in practice.
+>
+> **§5.1–§5.7 below remain accurate** as a record of what Mapbox Search Box does and why it
+> was chosen. They are kept, rather than deleted, so this reversal reads as a decision
+> rather than drift.
+>
+> #### Post-merge cleanup — `MAPBOXAPI_KEY` is not removed by dropping it from a workflow
+>
+> `wrangler versions secret put` only ever **adds**. Dropping the `put_secret` line from a
+> workflow stops future uploads but prunes nothing, so both deployed Workers keep a live
+> binding that nothing reads — the prod one a real, billable Mapbox token. This is the same
+> additive-not-pruning mechanic the superseded plan spelled out for the reverse direction,
+> and the same one the deleted README block described for `SEARCH_PROXIMITY`.
+>
+> Do this **only after** confirming search works in production, so a revert of the merge
+> commit can still reach a working Mapbox key:
+>
+> 1. Delete `MAPBOXAPI_KEY` (a **Secret**) and `SEARCH_PROXIMITY` (a **Variable**, not a
+>    Secret — the workflow read it as `vars.`) from the `prod` GitHub environment, and
+>    `MAPBOXAPI_KEY` from the demo environment.
+> 2. Delete the orphaned Worker bindings. Note `SEARCH_PROXIMITY` lives on the Worker as a
+>    *secret* even though GitHub held it as a variable, because `put_secret` uploaded it
+>    that way:
+>
+>    ```bash
+>    cd server
+>    bunx wrangler versions secret delete MAPBOXAPI_KEY    --name "<worker-name>" --env=""
+>    bunx wrangler versions secret delete SEARCH_PROXIMITY --name "<worker-name>" --env=""
+>    bunx wrangler versions secret delete MAPBOXAPI_KEY    --name "<demo-worker-name>" --env=""
+>    ```
+>
+>    Substitute the real Worker names at the terminal — never commit them.
+> 3. Revoke **only** the server-side Mapbox search token in the Mapbox dashboard.
+>    `VITE_MAPBOX_API_KEY` still draws every map and must be left alone.
+>
+> Left undone, a leaked Worker secret list exposes a Mapbox token nobody remembers issuing,
+> and nothing in the code would ever surface its absence.
+>
+> #### Two schema leniencies that the live API forced, against its own documentation
+>
+> Both were found by probing, not by reading the docs, and both are guarded by tests:
+>
+> - **`addressComponents[].types` is optional.** `cafe in Auckland` returned components with
+>   no `types` key at all. Declared as required, Zod rejected the whole payload and the
+>   entire search 500'd — costing every suggestion over one odd component. The controller
+>   reads it as `types?.includes(...)` for the same reason.
+> - **`formattedAddress` is optional.** Same principle: Google omits valueless fields, and a
+>   required field turns one odd result into a failed search. The controller falls back to
+>   `displayName.text`, which `PlaceSchema`'s `.min(1)` requires.
+>
+> This is the `hasUsableName` philosophy applied at the parse layer: degrade one suggestion,
+> never reject the whole response.
+>
+> #### `maxResultCount` is set explicitly
+>
+> Google defaults to 20, which is also its maximum. The Mapbox implementation carried the
+> same cap as `limit=10`, and restoring Google without it silently doubled both the payload
+> and the length of a dropdown nobody scrolls. Set to 10 to match prior behaviour.
+>
+> **What survived the reversal**, because it was never vendor-specific: the admin-only guard
+> on the route (§5.5), the `hasUsableName` filter, the upper-cased country code, and the
+> bound on `textQuery`. What went with Mapbox: `SEARCH_PROXIMITY` in all its forms (§5.6),
+> and the `access_token` redaction in the controller — the Places key travels in the
+> `X-Goog-Api-Key` header and the request URL has no query string, so there is nothing in a
+> URL to leak.
 
 ---
 

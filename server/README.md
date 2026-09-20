@@ -48,18 +48,15 @@ bun install
    R2_ACCESS_KEY=your_access_key
    R2_SECRET_KEY=your_secret_key
    JWT_SECRET=your_jwt_secret
-   MAPBOXAPI_KEY=your_server_side_mapbox_token
-   SEARCH_PROXIMITY=174.7633,-36.8485
+   GOOGLE_PLACES_API_KEY=your_google_places_api_key
    VITE_GOOGLE_CLIENT_ID=your_google_client_id
    RAPIDAPI_KEY=your_rapidapi_key
    DEVELOPMENT=true
    ```
 
-   `SEARCH_PROXIMITY` is **optional** (`"<longitude>,<latitude>"`, or the literal `ip` —
-   equivalent to leaving it unset, since `proximity=ip` returns byte-identical results to
-   omitting the parameter). It makes place-search ranking deterministic instead of biased
-   by the calling datacentre's IP, and only affects partial queries typed into the
-   autocomplete — see design spec §5.6.
+   `GOOGLE_PLACES_API_KEY` is a Worker secret used for place search. It has no `VITE_`
+   prefix on purpose - it must never reach the client bundle. Create it in the Google
+   Cloud console with the Places API (New) enabled, and restrict it to that API.
 
    `DEVELOPMENT=true` is required for local development: the worker only adds
    `http://localhost:9000` to its allowed CORS origins when this flag is set. Without it, the UI

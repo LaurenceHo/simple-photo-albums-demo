@@ -27,8 +27,7 @@ export interface Env {
   R2_ACCESS_KEY?: string;
   R2_SECRET_KEY?: string;
   JWT_SECRET?: string;
-  MAPBOXAPI_KEY?: string;
-  SEARCH_PROXIMITY?: string;
+  GOOGLE_PLACES_API_KEY?: string;
   VITE_GOOGLE_CLIENT_ID?: string;
   ALBUM_URL?: string;
   RAPIDAPI_KEY?: string;
@@ -54,8 +53,7 @@ export type Bindings = {
   R2_ACCESS_KEY: string;
   R2_SECRET_KEY: string;
   JWT_SECRET: string;
-  MAPBOXAPI_KEY: string;
-  SEARCH_PROXIMITY?: string;
+  GOOGLE_PLACES_API_KEY: string;
   VITE_GOOGLE_CLIENT_ID: string;
   ALBUM_URL: string;
   RAPIDAPI_KEY: string;

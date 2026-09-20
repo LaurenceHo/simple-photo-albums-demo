@@ -37,13 +37,12 @@ export const CreateTagSchema = z.array(
 );
 
 export const LocationSearchSchema = z.object({
-  // Mapbox's own docs claim `q` is capped at 256 characters, but that is wrong: live
-  // probing of https://api.mapbox.com/search/searchbox/v1/forward found 200 chars
-  // accepted and 250+ rejected, with the API's own error message naming the real limit -
-  // {"message":"Query exceeded character limit of 200"}. Do not "correct" this back to
-  // 256 from the docs. Without this bound, a query in the 201-256 range would reach
-  // Mapbox, get its own 400, and surface to the client as a generic 500 ("Failed to fetch
-  // location data") instead of a proper 400 at the validation layer.
+  // A defensive bound on an admin typeahead, not a vendor limit: Google publishes no
+  // character cap for `textQuery`. The 200 was measured against Mapbox, which this no
+  // longer calls, and is kept only because nothing legitimate types a 200-character place
+  // name and an unbounded field would forward junk to a billed endpoint. Without a bound
+  // here, an over-long query would surface as a generic 500 ("Failed to fetch location
+  // data") instead of a 400 at the validation layer.
   textQuery: z.string().min(1).max(200),
 });
 
