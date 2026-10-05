@@ -120,5 +120,21 @@ describe('extractPhotoMetadata', () => {
     it('should return an empty result for an empty buffer', () => {
       expect(parse(new Uint8Array(0))).toEqual({});
     });
+
+    // What a phone without a satellite fix writes: a GPS block is present, but every
+    // coordinate field is zero. It must read as "no location", not as a pin in the ocean.
+    it('should report no coordinates for a zeroed GPS block, keeping the capture time', () => {
+      const result = parse(
+        buildGeotaggedJpeg({
+          latitude: [0, 0, 0],
+          latitudeRef: 'N',
+          longitude: [0, 0, 0],
+          longitudeRef: 'E',
+          dateTimeOriginal: '2020:06:01 12:00:00',
+        }),
+      );
+
+      expect(result).toEqual({ takenAt: '2020-06-01T12:00:00' });
+    });
   });
 });

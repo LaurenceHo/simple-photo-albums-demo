@@ -150,6 +150,9 @@ describe('R2Service', () => {
       ['a latitude beyond the poles', { latitude: '91', longitude: '174.7' }],
       ['a longitude beyond the meridian', { latitude: '-36.8', longitude: '181' }],
       ['only one of the pair', { latitude: '-36.8' }],
+      // Stored by scans that ran before (0, 0) was treated as "no fix". Dropping it on
+      // read fixes those photos without needing a re-scan.
+      ['a zeroed no-fix pair', { latitude: '0', longitude: '0' }],
     ])('should drop coordinates for %s', async (_label, customMetadata) => {
       const bucket = bucketReturning({
         objects: [r2Object('album/bad.jpg', customMetadata)],
@@ -158,6 +161,22 @@ describe('R2Service', () => {
 
       const result = await r2Service.findAll(bucket, 'album/');
 
+      expect(result[0]).not.toHaveProperty('latitude');
+      expect(result[0]).not.toHaveProperty('longitude');
+    });
+
+    // What a photo scanned before the (0, 0) fix looks like: the old scan also wrote
+    // `hasgps: 'true'`. The pin goes, but the photo still counts as scanned, so the
+    // backfill does not pick it up again.
+    it('should keep a legacy zeroed record scanned while dropping its pin', async () => {
+      const bucket = bucketReturning({
+        objects: [r2Object('album/legacy.jpg', { latitude: '0', longitude: '0', hasgps: 'true' })],
+        truncated: false,
+      });
+
+      const result = await r2Service.findAll(bucket, 'album/');
+
+      expect(result[0]).toMatchObject({ hasGps: true });
       expect(result[0]).not.toHaveProperty('latitude');
       expect(result[0]).not.toHaveProperty('longitude');
     });

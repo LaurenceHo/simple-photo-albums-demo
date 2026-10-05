@@ -71,8 +71,20 @@ describe('coordinates', () => {
       expect(toCoordinates(45, 100)).toEqual({ latitude: 45, longitude: 100 });
     });
 
-    it('should accept a genuine zero rather than treating it as absent', () => {
-      expect(toCoordinates(0, 0)).toEqual({ latitude: 0, longitude: 0 });
+    // The equator and the prime meridian are real places, so one zero on its own is fine.
+    it('should accept a single zero rather than treating it as absent', () => {
+      expect(toCoordinates(0, 174.7633)).toEqual({ latitude: 0, longitude: 174.7633 });
+      expect(toCoordinates(51.5, 0)).toEqual({ latitude: 51.5, longitude: 0 });
+    });
+
+    // A phone with no satellite fix still writes a GPS block, zeroed. Taken literally
+    // that pins the photo in the Gulf of Guinea.
+    it.each([
+      ['0, 0', 0, 0],
+      ['-0, 0', -0, 0],
+      ['0, -0', 0, -0],
+    ])('should treat (%s) as no fix', (_label, latitude, longitude) => {
+      expect(toCoordinates(latitude, longitude)).toBeUndefined();
     });
   });
 });

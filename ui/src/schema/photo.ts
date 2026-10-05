@@ -26,6 +26,9 @@ export const PhotoSchema = z.object({
    * means "never scanned". Without that distinction a photo that genuinely carries no
    * location is indistinguishable from one not yet read, and every re-scan would read
    * every un-located photo again, forever.
+   *
+   * Read it as "scanned", not as "has a location": a photo scanned before zeroed (0, 0)
+   * fixes were rejected comes back `true` with no coordinates.
    */
   hasGps: z.boolean().optional(),
 });

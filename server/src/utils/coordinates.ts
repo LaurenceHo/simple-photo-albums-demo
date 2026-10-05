@@ -40,11 +40,19 @@ export const isUsableCoordinate = (value: unknown, limit: number): value is numb
  * map, and returning half a coordinate invites a caller to default the other half to 0 —
  * which is a real location in the Gulf of Guinea rather than an obviously wrong one.
  *
+ * The exact pair (0, 0) is rejected for the same reason. Phones without a satellite fix
+ * still write a GPS block, with every coordinate field zeroed, and taken at face value that
+ * pins the photo in open ocean. Nobody takes photos at that spot, so it is treated as "no
+ * fix". Either half on its own being 0 is still fine: the equator and the prime meridian
+ * are real places.
+ *
  * @param latitude Candidate latitude.
  * @param longitude Candidate longitude.
- * @returns The pair, or `undefined` when either is unusable.
+ * @returns The pair, or `undefined` when either is unusable or both are exactly zero.
  */
 export const toCoordinates = (latitude: unknown, longitude: unknown): Coordinates | undefined =>
-  isUsableCoordinate(latitude, LATITUDE_LIMIT) && isUsableCoordinate(longitude, LONGITUDE_LIMIT)
+  isUsableCoordinate(latitude, LATITUDE_LIMIT) &&
+  isUsableCoordinate(longitude, LONGITUDE_LIMIT) &&
+  !(latitude === 0 && longitude === 0)
     ? { latitude, longitude }
     : undefined;

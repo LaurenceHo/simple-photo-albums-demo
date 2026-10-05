@@ -57,14 +57,9 @@
         </small>
       </div>
     </div>
-    <Divider v-if="exifTags.GPSLatitudeRef && exifTags.GPSLongitudeRef" />
+    <Divider v-if="showLocationMap" />
     <div
-      v-if="
-        exifTags.GPSLatitudeRef &&
-        exifTags.GPSLongitudeRef &&
-        longitude > -1000 &&
-        latitude > -1000
-      "
+      v-if="showLocationMap"
       data-test-id="photo-info-map"
       role="group"
       aria-label="Photo location map"
@@ -149,6 +144,21 @@ const longitude = computed(() => {
   }
   return -1000;
 });
+
+/**
+ * Whether to draw the location mini-map from the file's EXIF GPS.
+ *
+ * Not for exactly (0, 0). A phone without a satellite fix still writes a GPS block with
+ * every field zeroed, which would draw a map of open ocean. The server's scan applies
+ * the same (0, 0) rule, so the two agree on these photos.
+ */
+const showLocationMap = computed(
+  () =>
+    Boolean(props.exifTags.GPSLatitudeRef && props.exifTags.GPSLongitudeRef) &&
+    latitude.value > -1000 &&
+    longitude.value > -1000 &&
+    !(latitude.value === 0 && longitude.value === 0),
+);
 
 /**
  * Aperture, formatted for an `f/` prefix — or `null` when there is nothing worth

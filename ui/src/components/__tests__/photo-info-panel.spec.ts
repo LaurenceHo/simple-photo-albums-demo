@@ -132,6 +132,19 @@ describe('PhotoInfoPanel.vue', () => {
     expect(map.props('latitude')).toBe(0);
   });
 
+  // What a phone without a satellite fix writes. Drawing it would show open ocean.
+  it('omits the map for a zeroed GPS block at exactly (0, 0)', () => {
+    const wrapper = mountPanel({
+      exifTags: {
+        GPSLatitudeRef: { value: ['N'], description: 'North latitude' },
+        GPSLongitudeRef: { value: ['E'], description: 'East longitude' },
+        GPSLatitude: { description: '0' },
+        GPSLongitude: { description: '0' },
+      },
+    });
+    expect(wrapper.find('[data-test-id="photo-info-map"]').exists()).toBe(false);
+  });
+
   // --- Fix round 1: dimensions must gate the EXIF aperture/exposure line ---
 
   it('hides the aperture/exposure line when dimensions are unknown, while still showing the file name', () => {
