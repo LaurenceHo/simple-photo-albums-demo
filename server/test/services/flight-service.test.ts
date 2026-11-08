@@ -102,6 +102,66 @@ describe('FlightService', () => {
     );
   });
 
+  it('should return every leg of a multi-leg flight, in order', async () => {
+    // TR867 flies NRT→TPE→SIN; AeroDataBox returns one element per leg.
+    const secondLeg = {
+      ...mockApiResponse[0],
+      departure: {
+        airport: {
+          name: 'Taiwan Taoyuan International',
+          municipalityName: 'Taipei',
+          countryCode: 'TW',
+          location: { lat: 25.0777, lon: 121.233 },
+        },
+        scheduledTime: { utc: '2025-01-15T08:40:00Z' },
+      },
+      arrival: {
+        airport: {
+          name: 'Singapore Changi',
+          municipalityName: 'Singapore',
+          countryCode: 'SG',
+          location: { lat: 1.35019, lon: 103.994 },
+        },
+        scheduledTime: { utc: '2025-01-15T13:20:00Z' },
+      },
+    };
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([mockApiResponse[0], secondLeg]),
+    } as Response);
+
+    const legs = await flightService.getFlightLegs('TR867', '2025-01-15');
+
+    expect(legs).toHaveLength(2);
+    expect(legs[0]?.departure.country).toBe('JP');
+    expect(legs[1]?.departure.displayName).toBe('Taiwan Taoyuan International Airport');
+    expect(legs[1]?.destination.country).toBe('SG');
+    expect(legs[1]?.durationMinutes).toBe(280);
+  });
+
+  it('getFlightByNumber should return only the first leg', async () => {
+    const secondLeg = { ...mockApiResponse[0], number: 'SECOND' };
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([mockApiResponse[0], secondLeg]),
+    } as Response);
+
+    const result = await flightService.getFlightByNumber('NH106', '2025-01-15');
+
+    expect(result.flightNumber).toBe('NH 106');
+  });
+
+  it('should throw FlightNotFoundError on a 204 No Content response', async () => {
+    // The real API returns 204 with an empty body when the flight does not operate that day.
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(flightService.getFlightByNumber('VN786', '2026-10-08')).rejects.toThrow(
+      FlightNotFoundError,
+    );
+  });
+
   it('should throw FlightNotFoundError on empty flights array', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,

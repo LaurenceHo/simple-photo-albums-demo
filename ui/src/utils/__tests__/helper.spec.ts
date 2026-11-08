@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateAdaptiveSteps,
   formatFileSize,
+  formatTravelDate,
   getStaticFileUrl,
   getYearOptions,
   interpolateGreatCircle,
   sortByKey,
   stripExtension,
+  toLocalDateString,
 } from '../helper';
 
 globalThis.fetch = vi.fn();
@@ -14,6 +16,40 @@ globalThis.fetch = vi.fn();
 describe('Helpers', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  describe('toLocalDateString', () => {
+    // Guards the TZ pin in vitest.config.ts: these tests only catch a UTC shift when local
+    // midnight falls on the previous UTC day. If that stops being true, fail loudly.
+    it('runs in a time zone east of UTC', () => {
+      expect(new Date(2026, 9, 9).toISOString().slice(0, 10)).toBe('2026-10-08');
+    });
+
+    it('returns the local calendar date, not the UTC one', () => {
+      // Local midnight, as a date picker produces. East of UTC its ISO string is the day before.
+      expect(toLocalDateString(new Date(2026, 9, 9))).toBe('2026-10-09');
+    });
+
+    it('zero-pads single-digit months and days', () => {
+      expect(toLocalDateString(new Date(2026, 0, 5))).toBe('2026-01-05');
+    });
+
+    it('keeps the date for a late-evening local time', () => {
+      expect(toLocalDateString(new Date(2026, 11, 31, 23, 59))).toBe('2026-12-31');
+    });
+  });
+
+  describe('formatTravelDate', () => {
+    it('shows a date-only value as that calendar day', () => {
+      expect(formatTravelDate('2026-10-09')).toBe(new Date(2026, 9, 9).toLocaleDateString());
+    });
+
+    it('shows an older UTC-instant value as the local day it falls on', () => {
+      // 13:00 UTC on 8 Oct is 9 Oct in New Zealand
+      expect(formatTravelDate('2026-10-08T13:00:00.000Z')).toBe(
+        new Date(2026, 9, 9).toLocaleDateString(),
+      );
+    });
   });
 
   describe('getStaticFileUrl', () => {

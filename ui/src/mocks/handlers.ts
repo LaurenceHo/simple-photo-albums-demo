@@ -23,6 +23,7 @@ import {
 import {
   createTravelRecords,
   deleteTravelRecord,
+  getFlightLegs,
   getTravelRecords,
   updateTravelRecords,
 } from '@/mocks/travel-records-handler';
@@ -69,6 +70,7 @@ export const handlers = [
   deleteGpsTrack,
   /** Travel Record **/
   getTravelRecords,
+  getFlightLegs,
   deleteTravelRecord,
   updateTravelRecords,
   createTravelRecords,

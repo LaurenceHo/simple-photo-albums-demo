@@ -279,6 +279,69 @@ export const updateTravelRecords = http.put('/api/travel-records', async () => {
   });
 });
 
+const mockAirport = (displayName: string, country: string, latitude: number, longitude: number) => ({
+  displayName,
+  formattedAddress: country,
+  location: { latitude, longitude },
+  country,
+});
+
+export const getFlightLegs = http.get('/api/travel-records/flight-legs', async ({ request }) => {
+  await delay();
+
+  const flightNumber = new URL(request.url).searchParams.get('flightNumber') ?? '';
+
+  // Simulate a flight that does not operate on the requested date
+  if (flightNumber === 'XX999') {
+    return HttpResponse.json(
+      {
+        code: 404,
+        status: 'Not Found',
+        message: 'No flight data found for the given flight number and date',
+      },
+      { status: 404 },
+    );
+  }
+
+  const narita = mockAirport('Narita International Airport', 'JP', 35.7647, 140.3864);
+  const taoyuan = mockAirport('Taiwan Taoyuan International Airport', 'TW', 25.0777, 121.233);
+  const changi = mockAirport('Singapore Changi Airport', 'SG', 1.35019, 103.994);
+
+  // TR867 is multi-leg (NRT→TPE→SIN); anything else returns a single leg
+  const legs =
+    flightNumber.replaceAll(/\s/g, '') === 'TR867'
+      ? [
+          {
+            departure: narita,
+            destination: taoyuan,
+            airline: 'Scoot',
+            flightNumber: 'TR 867',
+            distance: 2186,
+            durationMinutes: 240,
+          },
+          {
+            departure: taoyuan,
+            destination: changi,
+            airline: 'Scoot',
+            flightNumber: 'TR 867',
+            distance: 3226,
+            durationMinutes: 280,
+          },
+        ]
+      : [
+          {
+            departure: narita,
+            destination: changi,
+            airline: 'Mock Air',
+            flightNumber,
+            distance: 5330,
+            durationMinutes: 450,
+          },
+        ];
+
+  return HttpResponse.json({ code: 200, status: 'Success', message: 'ok', data: legs });
+});
+
 export const createTravelRecords = http.post('/api/travel-records', async ({ request }) => {
   await delay();
 

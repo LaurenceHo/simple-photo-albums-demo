@@ -55,6 +55,39 @@ describe('TravelRecordService', () => {
     });
   });
 
+  describe('lookupFlightLegs', () => {
+    it('should GET the flight legs with an encoded query string', async () => {
+      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({ code: 200 }) };
+      (BaseApiRequestService.perform as Mock).mockResolvedValue(mockResponse);
+
+      await TravelRecordService.lookupFlightLegs('TR 867', '2026-11-07');
+
+      expect(BaseApiRequestService.perform).toHaveBeenCalledWith(
+        'GET',
+        `${ApiBaseUrl}/travel-records/flight-legs?flightNumber=TR+867&date=2026-11-07`,
+      );
+    });
+
+    it('should resolve with the envelope on 404 so callers can show "not found"', async () => {
+      const envelope = { code: 404, status: 'Not Found', message: 'No flight data found' };
+      const mockResponse = { ok: false, status: 404, json: vi.fn().mockResolvedValue(envelope) };
+      (BaseApiRequestService.perform as Mock).mockResolvedValue(mockResponse);
+
+      await expect(TravelRecordService.lookupFlightLegs('XX999', '2026-11-07')).resolves.toEqual(
+        envelope,
+      );
+    });
+
+    it('should throw on any other failed response', async () => {
+      const mockResponse = { ok: false, status: 500, statusText: 'Internal Server Error' };
+      (BaseApiRequestService.perform as Mock).mockResolvedValue(mockResponse);
+
+      await expect(TravelRecordService.lookupFlightLegs('TR867', '2026-11-07')).rejects.toThrow(
+        'Internal Server Error',
+      );
+    });
+  });
+
   describe('createTravelRecord', () => {
     it('should call BaseApiRequestService.perform with correct parameters', async () => {
       const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({ status: 'success' }) };

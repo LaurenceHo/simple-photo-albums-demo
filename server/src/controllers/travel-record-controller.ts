@@ -1,13 +1,15 @@
 import { Context } from 'hono';
-import { HonoEnv, ValidatedJsonContext } from '../env';
-import FlightService, { FlightNotFoundError } from '../services/flight-service';
+import { HonoEnv, ValidatedJsonContext, ValidatedQueryContext } from '../env';
+import FlightService, { FlightData, FlightNotFoundError } from '../services/flight-service';
 import TravelRecordService from '../services/travel-record-service';
 import {
   CreateTravelRecordRequest,
+  FlightLegsQuery,
   UpdateTravelRecordRequest,
 } from '../types/request-schemas';
 import { TravelRecord } from '../types/travel-record';
 import { UserPermission } from '../types/user-permission';
+import { toCoordinates } from '../utils/coordinates';
 import { haversineDistance, isValidCoordination } from '../utils/helpers';
 import { BaseController } from './base-controller';
 
@@ -20,6 +22,29 @@ export default class TravelRecordController extends BaseController {
     } catch (err: any) {
       console.error(`Failed to fetch travel records from D1: ${err.message}`);
       return this.fail(c, 'Failed to query travel records');
+    }
+  };
+
+  /**
+   * Every leg flown under a flight number on a date, so the UI can let the traveller pick
+   * the one they were on - a multi-leg flight like TR867 (NRT→TPE→SIN) has one per stop.
+   */
+  findFlightLegs = async (c: ValidatedQueryContext<FlightLegsQuery>) => {
+    const { flightNumber, date } = c.req.valid('query');
+    const apiKey = c.env.RAPIDAPI_KEY;
+    if (!apiKey) {
+      return this.fail(c, 'RAPIDAPI_KEY is not configured');
+    }
+
+    try {
+      const legs = await new FlightService(apiKey).getFlightLegs(flightNumber, date);
+      return this.ok<FlightData[]>(c, 'ok', legs);
+    } catch (err: unknown) {
+      if (err instanceof FlightNotFoundError) {
+        return this.notFoundError(c, 'No flight data found for the given flight number and date');
+      }
+      console.error(`Flight API error: ${err instanceof Error ? err.message : String(err)}`);
+      return this.fail(c, 'Failed to fetch flight data from provider');
     }
   };
 
@@ -76,14 +101,30 @@ export default class TravelRecordController extends BaseController {
         return this.fail(c, 'Invalid coordinates');
       }
 
-      const rawDistance = haversineDistance(
-        body.departure.location.latitude,
-        body.departure.location.longitude,
-        body.destination.location.latitude,
-        body.destination.location.longitude,
-      );
+      // The flight lookup falls back to (0, 0) for an airport the provider has no
+      // coordinates for. Taken at face value that draws the route to the Gulf of Guinea and
+      // inflates the distance by thousands of km, so it is refused like any unknown location.
+      if (
+        !toCoordinates(body.departure.location.latitude, body.departure.location.longitude) ||
+        !toCoordinates(body.destination.location.latitude, body.destination.location.longitude)
+      ) {
+        return this.clientError(c, 'Departure and destination must have a known location');
+      }
 
-      distance = Math.round(rawDistance);
+      if (body.transportType === 'flight' && body.distance && body.distance > 0) {
+        // A leg from the flight lookup carries the provider's great-circle distance; keep it,
+        // as the server-side flight mode does, rather than recomputing it.
+        distance = Math.round(body.distance);
+      } else {
+        const rawDistance = haversineDistance(
+          body.departure.location.latitude,
+          body.departure.location.longitude,
+          body.destination.location.latitude,
+          body.destination.location.longitude,
+        );
+
+        distance = Math.round(rawDistance);
+      }
     }
 
     const payload: TravelRecord = {

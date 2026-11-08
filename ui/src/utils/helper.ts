@@ -66,6 +66,38 @@ export const formatFileSize = (bytes: number | undefined): string => {
 export const stripExtension = (fileName: string, fallback: string): string =>
   fileName.replace(/\.[^.]+$/, '') || fallback;
 
+/**
+ * Calendar date of `date` in the browser's time zone, as `YYYY-MM-DD`.
+ *
+ * Use this instead of `toISOString()` for dates picked in a date picker: those are local
+ * midnight, and converting to UTC moves them to the previous day anywhere east of UTC
+ * (9 Oct 00:00 AEDT is `2026-10-08T13:00:00.000Z`).
+ */
+export const toLocalDateString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * A travel record's `travelDate`, formatted for display in the viewer's locale.
+ *
+ * Two formats are stored: newer records hold the picked calendar date (`2026-10-09`), older
+ * ones a UTC instant (`2026-10-08T13:00:00.000Z`). `new Date('2026-10-09')` would parse the
+ * first as UTC midnight and show the previous day to anyone west of UTC, so a date-only value
+ * is built from its parts in local time instead.
+ */
+export const formatTravelDate = (travelDate: string): string => {
+  const dateOnly = DATE_ONLY_PATTERN.exec(travelDate);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(travelDate);
+  return date.toLocaleDateString();
+};
+
 export const fetchDbUpdatedTime = async (): Promise<DbUpdatedTime | null> => {
   try {
     const response = await fetch(getStaticFileUrl('updateDatabaseAt.json'));

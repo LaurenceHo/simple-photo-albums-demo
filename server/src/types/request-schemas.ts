@@ -46,6 +46,20 @@ export const LocationSearchSchema = z.object({
   textQuery: z.string().min(1).max(200),
 });
 
+export const FlightLegsQuerySchema = z.object({
+  // Restricted because it ends up in a billed provider URL: a flight number is a 2-3
+  // character airline designator, an optional space, 1-4 digits and an optional suffix
+  // letter (VN786, TR 867, 3K123, QF1). Anything else - `../x`, `?a=b` - is refused here.
+  flightNumber: z
+    .string()
+    .trim()
+    .regex(/^[A-Z0-9]{2,3} ?\d{1,4}[A-Z]?$/i),
+  // The calendar date the traveller picked, already local - not an ISO instant. `z.iso.date()`
+  // also rejects impossible dates such as 2026-99-99, which the provider would answer with
+  // an error that surfaced as a 500.
+  date: z.iso.date(),
+});
+
 export const CreateTravelRecordSchema = TravelRecordSchema.omit({
   createdAt: true,
   createdBy: true,
@@ -72,4 +86,5 @@ export type DeleteAlbumRequest = z.infer<typeof DeleteAlbumSchema>;
 export type CreateTagRequest = z.infer<typeof CreateTagSchema>;
 export type LocationSearchRequest = z.infer<typeof LocationSearchSchema>;
 export type CreateTravelRecordRequest = z.infer<typeof CreateTravelRecordSchema>;
+export type FlightLegsQuery = z.infer<typeof FlightLegsQuerySchema>;
 export type UpdateTravelRecordRequest = z.infer<typeof UpdateTravelRecordSchema>;

@@ -34,16 +34,34 @@ export default class FlightService {
   }
 
   /**
-   * https://doc.aerodatabox.com/rapidapi.html#/operations/GetFlight_FlightOnSpecificDate
-   *
-   * Get flight data by flight number and date
+   * Get the first leg of a flight by flight number and date.
    * @param flightNumber Flight number (e.g., "QF123")
    * @param date Date in YYYY-MM-DD format
-   * @returns Flight data
+   * @returns Flight data for the first leg
    */
   async getFlightByNumber(flightNumber: string, date: string): Promise<FlightData> {
+    const [firstLeg] = await this.getFlightLegs(flightNumber, date);
+    // getFlightLegs throws on an empty result, so this only guards the type.
+    if (!firstLeg) {
+      throw new FlightNotFoundError();
+    }
+    return firstLeg;
+  }
+
+  /**
+   * https://doc.aerodatabox.com/rapidapi.html#/operations/GetFlight_FlightOnSpecificDate
+   *
+   * Get every leg of a flight by flight number and date. One flight number can cover several
+   * legs (e.g. TR867 flies NRT→TPE→SIN), and AeroDataBox returns one array element per leg,
+   * in flight order.
+   * @param flightNumber Flight number (e.g., "QF123")
+   * @param date Date in YYYY-MM-DD format
+   * @returns Flight data for each leg, never empty
+   */
+  async getFlightLegs(flightNumber: string, date: string): Promise<FlightData[]> {
     const sanitizedFlightNumber = flightNumber.replaceAll(/\s/g, '');
-    const url = `https://aerodatabox.p.rapidapi.com/flights/number/${sanitizedFlightNumber}/${date}`;
+    // Encoded as well as validated upstream, so a value can never add path segments or a query.
+    const url = `https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(sanitizedFlightNumber)}/${encodeURIComponent(date)}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FLIGHT_API_TIMEOUT_MS);
@@ -66,14 +84,54 @@ export default class FlightService {
       throw new FlightApiError(`AeroDataBox API returned ${response.status}`);
     }
 
+    // AeroDataBox answers "no flight on that date" with 204 and an empty body. `response.ok`
+    // is true for 204, so without this check `response.json()` throws a SyntaxError that
+    // surfaces as a generic 500 instead of a not-found.
+    if (response.status === 204) {
+      throw new FlightNotFoundError();
+    }
+
     const data: unknown = await response.json();
 
     if (!Array.isArray(data) || data.length === 0) {
       throw new FlightNotFoundError();
     }
 
-    const flight = data[0];
+    return data.map((flight: AeroDataBoxFlight) => toFlightData(flight, flightNumber));
+  }
+}
 
+/**
+ * The subset of an AeroDataBox flight element that is mapped. Every field is optional
+ * because the provider omits whatever it does not know.
+ */
+interface AeroDataBoxAirport {
+  name?: string;
+  municipalityName?: string;
+  countryCode?: string;
+  location?: { lat?: number; lon?: number };
+}
+
+interface AeroDataBoxMovement {
+  airport?: AeroDataBoxAirport;
+  scheduledTime?: { utc?: string };
+}
+
+interface AeroDataBoxFlight {
+  departure?: AeroDataBoxMovement;
+  arrival?: AeroDataBoxMovement;
+  number?: string;
+  aircraft?: { model?: string };
+  airline?: { name?: string };
+  greatCircleDistance?: { km?: number };
+}
+
+/**
+ * Map one AeroDataBox flight element (one leg) onto `FlightData`.
+ * @param flight One element of the API response
+ * @param requestedFlightNumber Fallback for when the element carries no flight number
+ */
+const toFlightData = (flight: AeroDataBoxFlight, requestedFlightNumber: string): FlightData => {
     const departureAirport = flight.departure?.airport;
     const arrivalAirport = flight.arrival?.airport;
 
@@ -120,10 +178,11 @@ export default class FlightService {
       departure,
       destination,
       airline,
-      flightNumber: flight.number ?? flightNumber,
-      aircraftType,
+      flightNumber: flight.number ?? requestedFlightNumber,
+      // Omitted rather than set to undefined: `aircraftType` is optional, and with
+      // exactOptionalPropertyTypes an explicit undefined is not assignable to it.
+      ...(aircraftType ? { aircraftType } : {}),
       distance: Math.round(distance),
       durationMinutes,
     };
-  }
-}
+};

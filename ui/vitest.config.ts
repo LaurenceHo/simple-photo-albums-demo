@@ -40,6 +40,10 @@ export default mergeConfig(
     },
     test: {
       setupFiles: './vitest.setup.ts',
+      // Run east of UTC, like the app's users. On a UTC runner, local midnight and UTC
+      // midnight are the same instant, so a date that has been shifted through
+      // `toISOString()` looks correct and date-handling bugs pass unnoticed.
+      env: { TZ: 'Pacific/Auckland' },
       // Pull @pinia/testing into Vite's module graph. Left externalised, Node's ESM loader
       // gives it its own copy of pinia that no alias can reach, so `setActivePinia()` there
       // is invisible to the app's `getActivePinia()`.

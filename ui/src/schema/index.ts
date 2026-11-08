@@ -5,6 +5,6 @@ export type { ExifData } from './exif';
 export type { Position, TrackFeature, TrackManifest, TrackManifestEntry } from './gps-track';
 export type { Photo, PhotoMetadataResult } from './photo';
 export type { Place } from './place';
-export type { TravelRecord } from './travel-record';
+export type { FlightLeg, TravelRecord } from './travel-record';
 export type { UploadFile } from './upload-file';
 export type { UserPermission } from './user-permission';

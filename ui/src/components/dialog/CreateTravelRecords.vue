@@ -14,7 +14,7 @@
         <FloatLabel>
           <DatePicker
             v-model="travelDate"
-            :disabled="isCreatingRecord"
+            :disabled="isBusy"
             :invalid="v$.travelDate.$invalid"
             dateFormat="yy-mm-dd"
             fluid
@@ -29,7 +29,7 @@
           <InputText
             id="flight-number"
             v-model="flightNumber"
-            :disabled="isCreatingRecord"
+            :disabled="isBusy"
             :invalid="v$.flightNumber.$invalid"
             class="w-full"
           />
@@ -40,11 +40,29 @@
           Departure and destination will be auto-populated from flight data.
         </small>
       </div>
+      <div v-if="isFlightApiMode && flightLegs.length > 1" class="mb-4 pb-4">
+        <FloatLabel>
+          <Select
+            v-model="selectedLeg"
+            :disabled="isBusy"
+            :invalid="!selectedLeg"
+            :optionLabel="formatLeg"
+            :options="flightLegs"
+            aria-labelledby="flight-leg-label"
+            class="w-full"
+            labelId="flight-leg"
+          />
+          <label id="flight-leg-label" for="flight-leg">Flight leg</label>
+        </FloatLabel>
+        <small class="mt-1 block" data-test-id="flight-leg-hint">
+          This flight has {{ flightLegs.length }} legs. Choose the one you flew.
+        </small>
+      </div>
       <div v-if="!isFlightApiMode" class="mb-4 pb-4">
         <FloatLabel>
           <AutoComplete
             v-model="selectedDeparture"
-            :disabled="isCreatingRecord"
+            :disabled="isBusy"
             :invalid="!isFlightApiMode && v$.departure.$invalid"
             :loading="isSearchingDeparture"
             :suggestions="placeSuggestions"
@@ -74,7 +92,7 @@
         <FloatLabel>
           <AutoComplete
             v-model="selectedDestination"
-            :disabled="isCreatingRecord"
+            :disabled="isBusy"
             :invalid="!isFlightApiMode && v$.destination.$invalid"
             :loading="isSearchingDestination"
             :suggestions="placeSuggestions"
@@ -110,32 +128,38 @@
       </div>
       <div class="flex justify-end">
         <Button
-          :disabled="isCreatingRecord"
+          :disabled="isBusy"
           class="mr-2"
           data-test-id="cancel-button"
           label="Cancel"
           text
           @click="onReset"
         />
-        <Button :disabled="v$.$invalid" :loading="isCreatingRecord" label="Save" type="submit" />
+        <Button
+          :disabled="v$.$invalid || isBusy || isAwaitingLegChoice"
+          :loading="isCreatingRecord || isLookingUpLegs"
+          label="Save"
+          type="submit"
+        />
       </div>
     </form>
   </Dialog>
 </template>
 
 <script lang="ts" setup>
-import type { Place } from '@/schema';
+import type { FlightLeg, Place } from '@/schema';
 import { TravelRecordSchema } from '@/schema/travel-record';
 import { LocationService } from '@/services/location-service';
 import { TravelRecordService } from '@/services/travel-record-service';
 import { useDialogStore, useTravelRecordsStore } from '@/stores';
+import { toLocalDateString } from '@/utils/helper';
 import { useMutation } from '@tanstack/vue-query';
 import { useVuelidate } from '@vuelidate/core';
 import { helpers, required, requiredIf } from '@vuelidate/validators';
 import { storeToRefs } from 'pinia';
 import { AutoComplete, Button, DatePicker, Dialog, FloatLabel, InputText, Select } from 'primevue';
 import { useToast } from 'primevue/usetoast';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const transportTypes = [
   { name: 'Flight', code: 'flight' },
@@ -162,6 +186,27 @@ const flightNumber = ref('');
 
 const normalizedFlightNumber = computed(() => flightNumber.value.trim());
 const isFlightApiMode = computed(() => !!normalizedFlightNumber.value);
+
+// Legs returned by the flight lookup. Only shown when there is more than one - a single leg
+// is saved straight away - and cleared whenever the flight number or date changes, so a
+// leg from a previous lookup can never be saved against a different date.
+const flightLegs = ref<FlightLeg[]>([]);
+const selectedLeg = ref<FlightLeg | null>(null);
+const isAwaitingLegChoice = computed(() => flightLegs.value.length > 1 && !selectedLeg.value);
+
+const formatLeg = (leg: FlightLeg) =>
+  `${leg.departure.displayName} → ${leg.destination.displayName}`;
+
+const clearFlightLegs = () => {
+  flightLegs.value = [];
+  selectedLeg.value = null;
+};
+
+watch([normalizedFlightNumber, travelDate], clearFlightLegs);
+
+// Inputs and Cancel are locked while a lookup or save is in flight, so the form cannot change
+// underneath a request that will act on it.
+const isBusy = computed(() => isCreatingRecord.value || isLookingUpLegs.value);
 const departure = computed(() => selectedDeparture.value?.displayName || '');
 const destination = computed(() => selectedDestination.value?.displayName || '');
 
@@ -211,10 +256,68 @@ const searchPlace = async (event: { query: string }, field: 'departure' | 'desti
 
 const validateAndSubmit = async () => {
   const isFormCorrect = await v$.value.$validate();
-  if (isFormCorrect) {
-    createRecord();
+  if (!isFormCorrect) {
+    return;
   }
+  // Flight mode is two-step: look the legs up first, unless the user is choosing from a
+  // lookup that already returned several.
+  if (isFlightApiMode.value && !selectedLeg.value) {
+    lookupLegs();
+    return;
+  }
+  createRecord();
 };
+
+/** The flight number and date currently in the form, or null without a valid date. */
+const currentLookupInput = () =>
+  travelDate.value instanceof Date
+    ? { flightNumber: normalizedFlightNumber.value, date: toLocalDateString(travelDate.value) }
+    : null;
+
+const { isPending: isLookingUpLegs, mutate: lookupLegs } = useMutation({
+  mutationFn: async () => {
+    const input = currentLookupInput();
+    if (!input) {
+      throw new TypeError('Travel date must be selected');
+    }
+    const response = await TravelRecordService.lookupFlightLegs(input.flightNumber, input.date);
+    // Returned with the response so onSuccess can tell whether the form still matches it.
+    return { response, input };
+  },
+  onSuccess: ({ response, input }) => {
+    // The inputs are disabled while this runs, but Cancel-then-reopen or any other change
+    // must still never save legs looked up for a different flight or date.
+    const current = currentLookupInput();
+    if (current?.flightNumber !== input.flightNumber || current.date !== input.date) {
+      return;
+    }
+    const legs = response.code === 200 ? (response.data ?? []) : [];
+    if (legs.length === 0) {
+      toast.add({
+        severity: 'warn',
+        summary: 'Flight not found',
+        detail: 'No flight found for that flight number on that date.',
+        life: 3000,
+      });
+      return;
+    }
+    if (legs.length === 1) {
+      selectedLeg.value = legs[0] ?? null;
+      createRecord();
+      return;
+    }
+    flightLegs.value = legs;
+    selectedLeg.value = null;
+  },
+  onError: () => {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Error while looking up the flight. Please try again later.',
+      life: 3000,
+    });
+  },
+});
 
 const { isPending: isCreatingRecord, mutate: createRecord } = useMutation({
   mutationFn: () => {
@@ -222,13 +325,30 @@ const { isPending: isCreatingRecord, mutate: createRecord } = useMutation({
       selectedTransportType.value?.code,
     );
 
+    if (!(travelDate.value instanceof Date)) {
+      throw new TypeError('Travel date must be selected');
+    }
+    // Send the picked calendar date, not a UTC instant: the server looks the flight up by
+    // this date, and serialising local midnight to UTC shifts it a day back east of UTC.
+    const localTravelDate = toLocalDateString(travelDate.value);
+
     if (isFlightApiMode.value) {
-      // Flight API mode: send flightNumber only, server auto-populates departure/destination
-      const trimmedFlightNumber = normalizedFlightNumber.value;
+      // Flight mode: save the leg the lookup returned (or the user chose), with the
+      // provider's great-circle distance, which the server keeps for flights.
+      const leg = selectedLeg.value;
+      if (!leg) {
+        throw new TypeError('A flight leg must be selected');
+      }
       const travelRecord = {
-        travelDate: travelDate.value,
+        travelDate: localTravelDate,
         transportType: 'flight' as const,
-        flightNumber: trimmedFlightNumber,
+        departure: leg.departure,
+        destination: leg.destination,
+        airline: leg.airline,
+        flightNumber: leg.flightNumber,
+        aircraftType: leg.aircraftType,
+        durationMinutes: leg.durationMinutes,
+        distance: leg.distance,
       };
       return TravelRecordService.createTravelRecord(travelRecord);
     }
@@ -239,7 +359,7 @@ const { isPending: isCreatingRecord, mutate: createRecord } = useMutation({
     }
 
     const travelRecord = {
-      travelDate: travelDate.value,
+      travelDate: localTravelDate,
       departure: selectedDeparture.value,
       destination: selectedDestination.value,
       transportType,
@@ -272,5 +392,6 @@ const onReset = () => {
   selectedDeparture.value = null;
   selectedDestination.value = null;
   flightNumber.value = '';
+  clearFlightLegs();
 };
 </script>

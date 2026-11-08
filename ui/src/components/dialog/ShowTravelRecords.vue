@@ -33,7 +33,7 @@
 
         <Column :sortable="true" field="travelDate" header="Date">
           <template #body="{ data }">
-            {{ data.travelDate ? new Date(data.travelDate).toLocaleDateString() : '--' }}
+            {{ data.travelDate ? formatTravelDate(data.travelDate) : '--' }}
           </template>
         </Column>
         <Column :sortable="true" field="departure" header="Departure">
@@ -122,9 +122,7 @@
         <span class="text-lg font-semibold" data-test-id="confirm-delete-album-dialog-title">
           {{ slotProps.message.message }}
           {{
-            selectedRecord?.travelDate
-              ? new Date(selectedRecord.travelDate).toLocaleDateString()
-              : '--'
+            selectedRecord?.travelDate ? formatTravelDate(selectedRecord.travelDate) : '--'
           }}
           fly from "{{ selectedRecord?.departure?.displayName }}" to "{{
             selectedRecord?.destination?.displayName
@@ -139,6 +137,7 @@
 import type { TravelRecord } from '@/schema/travel-record';
 import { TravelRecordService } from '@/services/travel-record-service';
 import { useDialogStore, useTravelRecordsStore } from '@/stores';
+import { formatTravelDate } from '@/utils/helper';
 import { IconAlertCircle, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-vue';
 import { useMutation } from '@tanstack/vue-query';
 import { storeToRefs } from 'pinia';
