@@ -46,9 +46,9 @@ You are very experienced with CloudFlare and AWS services and how you might inte
 - **Local dev needs both servers:** `ui/src/services/api-base-url.ts` hardcodes `http://localhost:8787/api` in DEV, so `bun run dev` (port 9000) is only useful with `bun run --cwd server start:wrangler` running. The Worker only allows CORS from `localhost:9000` when `DEVELOPMENT=true` is set in `server/.dev.vars`. For UI-only work use `bun run --cwd ui msw` (MSW handlers, Vite default port 5173).
 - **Zod schemas are duplicated, not shared:** `ui/src/schema/*` and `server/src/types/*` are independent. The server copies carry audit fields and `.omit()` them in `request-schemas.ts`. Do not import across workspaces.
 - **Server tests need a polyfill:** always run `bun run --cwd server test:server`, which sets `NODE_OPTIONS='--require ./test/slowbuffer-polyfill.cjs'`. Invoking `vitest` directly in `server/` drops it.
-- **Dependencies deliberately held back** — `bun outdated` lists these forever; do not "fix" them:
+- **Dependency deliberately held back** — `bun outdated` lists it forever; do not "fix" it:
   - `typescript` stays on 6.x: `typescript-eslint` peer-requires `typescript >=4.8.4 <6.1.0`, so TS 7 breaks lint.
-  - `@cloudflare/workers-types` is pinned to `5.20260726.1`. `5.20260908.1` added `declare const Buffer: any` / `declare const process: any` at global scope, which discards `@types/node`'s `Buffer` globals — `randomBytes(n).toString('hex')` in `auth-route.ts` then resolves to `Uint8Array.prototype.toString()` (0 args) and fails `types:server`. Upstream: cloudflare/workerd#7026. Unpin once that lands.
+- **`@cloudflare/workers-types` regression to watch for:** `5.20260908.1` declared `const Buffer: any` / `const process: any` globally, discarding `@types/node`'s `Buffer` — `randomBytes(n).toString('hex')` in `auth-route.ts` then fails `types:server`. Fixed upstream (cloudflare/workerd#7026); `5.20261108.1` is clean. If `types:server` breaks on that line after a bump, this is why.
 
 # Deploy
 

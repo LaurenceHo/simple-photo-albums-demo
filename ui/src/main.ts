@@ -18,9 +18,15 @@ declare global {
 }
 
 const prepareApp = async () => {
-  const { worker } = await import('./mocks/browser');
+  // Both are dynamic imports so MSW never ships in the production bundle.
+  const [{ worker }, { HttpNetworkFrame }] = await Promise.all([
+    import('./mocks/browser'),
+    import('msw/experimental'),
+  ]);
   return worker.start({
-    onUnhandledRequest: (request, print) => {
+    // MSW 3 reports unhandled "frames" (HTTP requests and WebSocket connections)
+    // rather than plain requests; only HTTP frames carry a `Request` to inspect.
+    onUnhandledFrame: ({ frame, defaults }) => {
       const ignoredUrls = [
         'chrome-extension://',
         'https://fonts.gstatic.com',
@@ -29,11 +35,14 @@ const prepareApp = async () => {
       ];
 
       // Check if the request URL starts with any of the ignored URLs
-      if (ignoredUrls.some((url) => request.url.startsWith(url))) {
+      if (
+        frame instanceof HttpNetworkFrame &&
+        ignoredUrls.some((url) => frame.data.request.url.startsWith(url))
+      ) {
         return;
       }
 
-      print.warning();
+      defaults.warn();
     },
   });
 };
